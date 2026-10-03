@@ -1,0 +1,31 @@
+cff-version: 1.2.0
+title: "Location Risk Radar"
+message: "If you use this software, please cite it as below."
+type: software
+authors:
+  - family-names: Lin
+    given-names: Andy
+  - family-names: Akbar
+    given-names: Hunain
+  - family-names: Patel
+    given-names: Ishani
+  - family-names: Ida
+    given-names: Jake
+  - family-names: Gandhi
+    given-names: Yukti
+abstract: >-
+  An early warning system that flags restaurant chain locations at elevated risk of
+  closure and explains why using customer review language. It combines a landmark
+  two-tier survival model, BERTopic complaint themes, a retrieval-augmented evidence
+  assistant, and a three-agent Risk Committee behind a single LLM gateway, served by a
+  Streamlit application.
+keywords:
+  - survival analysis
+  - natural language processing
+  - BERTopic
+  - retrieval augmented generation
+  - LLM agents
+  - Yelp Open Dataset
+license: MIT
+version: 1.0.0
+date-released: 2026-10-03
