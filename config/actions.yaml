@@ -1,0 +1,48 @@
+# Static recommended-action playbook, keyed by Voice-of-Customer issue. The
+# orchestrator maps the grounded issues present in a brief to these actions, ordered
+# by issue prevalence. Actions are operational suggestions for a manager, not
+# automated decisions.
+
+service_speed:
+  - Audit peak-hour staffing and line throughput; add a runner during rush.
+  - Review ticket times by daypart and set a target for order-to-handoff.
+  - Check kitchen prep-ahead for the top five sellers.
+
+staff_attitude:
+  - Run a service-recovery and hospitality refresher with the shift leads.
+  - Review recent negative mentions with the team without naming individuals.
+  - Verify adequate coverage so staff are not stretched during peaks.
+
+order_accuracy:
+  - Add an order-confirmation step at the window or handoff.
+  - Audit modifier and allergy handling in the POS flow.
+  - Track remake and refund rates for a two-week baseline.
+
+food_quality:
+  - Check hold times and temperatures against brand standards.
+  - Review supplier freshness and portioning on the flagged items.
+  - Re-taste the most-mentioned dishes with the kitchen lead.
+
+cleanliness:
+  - Increase dining-room and restroom cleaning cadence and log it.
+  - Run a line and front-of-house sanitation check.
+  - Address the specific areas named in recent reviews.
+
+value:
+  - Review pricing and portion perception versus local peers.
+  - Audit promotion and combo visibility.
+  - Confirm the menu reflects current prices in all channels.
+
+management_response:
+  - Set a response SLA for reviews and complaints and assign an owner.
+  - Train on service recovery for on-site complaints.
+  - Follow up on unresolved recent complaints and document outcomes.
+
+drive_thru_takeout:
+  - Time the drive-thru and pickup flow end to end and remove the bottleneck.
+  - Verify bag checks for off-premise accuracy.
+  - Stage pickup orders to reduce wait at the counter.
+
+other:
+  - Review the flagged reviews with the location manager.
+  - Open a short investigation into the specific concern raised.
