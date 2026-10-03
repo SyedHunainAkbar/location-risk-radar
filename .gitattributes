@@ -1,0 +1,10 @@
+# Normalize line endings to LF in the repository for cross-platform consistency.
+* text=auto eol=lf
+
+# Treat these as binary (no EOL normalization, no diff noise).
+*.png binary
+*.jpg binary
+*.parquet binary
+*.npy binary
+*.ipynb binary
+*.html binary
