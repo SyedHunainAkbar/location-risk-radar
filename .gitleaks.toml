@@ -1,0 +1,37 @@
+# Gitleaks configuration for Location Risk Radar.
+# Extends the default ruleset and adds an allowlist for intentional test fixtures and
+# generated or vendored paths, so the scan flags only real secrets.
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Allow known-safe test fixtures and non-source paths"
+
+# Paths we never want scanned: virtual envs, caches, compiled files, raw data,
+# notebook HTML exports, and the lockfile-style RECORD files that contain hashes.
+paths = [
+  '''\.venv/.*''',
+  '''\.cache/.*''',
+  '''.*__pycache__/.*''',
+  '''.*\.pyc$''',
+  '''Yelp-JSON/.*''',
+  '''.*\.html$''',
+  '''.*\.ipynb$''',
+  '''.*dist-info/RECORD$''',
+]
+
+# Specific fake tokens used by the redaction unit tests. These are not real keys;
+# they exist to prove the gateway masks secret-shaped strings.
+regexes = [
+  '''sk_live_abcdef123456''',
+  '''sk-SECRET1234567''',
+  '''sk-ABCDEF123456''',
+  '''nvapi-0123456789abc''',
+  '''sk-abcdef123456''',
+]
+
+# Allow the .env.example template (keys are intentionally blank there).
+stopwords = [
+  "example",
+]

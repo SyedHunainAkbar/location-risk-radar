@@ -1,0 +1,64 @@
+# Pre-commit hooks for Location Risk Radar.
+# Install once:  pip install pre-commit && pre-commit install
+# Run on all files:  pre-commit run --all-files
+#
+# Two independent secret scanners run on every commit:
+#   - gitleaks: fast, broad default ruleset, honors .gitleaks.toml
+#   - detect-secrets: entropy + plugin based, honors .secrets.baseline
+# Plus basic hygiene hooks that block large files and private keys.
+
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.6.9
+    hooks:
+      - id: ruff
+        name: ruff (lint)
+        args: ["--fix"]
+      - id: ruff-format
+        name: ruff-format
+
+  - repo: https://github.com/kynan/nbstripout
+    rev: 0.7.1
+    hooks:
+      - id: nbstripout
+        name: nbstripout (strip non-submission notebook outputs)
+        # Keep outputs in the graded deliverable and the final EDA; strip the rest.
+        exclude: |
+          (?x)^(
+            notebooks/Location_Risk_Radar_Final\.ipynb|
+            EDA/Final\ Submission/.*
+          )$
+
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.21.2
+    hooks:
+      - id: gitleaks
+        name: gitleaks (secret scan)
+
+  - repo: https://github.com/Yelp/detect-secrets
+    rev: v1.5.0
+    hooks:
+      - id: detect-secrets
+        name: detect-secrets (baseline scan)
+        args: ["--baseline", ".secrets.baseline"]
+        exclude: |
+          (?x)^(
+            \.venv/.*|
+            \.cache/.*|
+            .*__pycache__/.*|
+            .*\.pyc|
+            Yelp-JSON/.*|
+            .*\.html|
+            .*\.ipynb
+          )$
+
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: detect-private-key
+      - id: check-added-large-files
+        args: ["--maxkb=5120"]
+      - id: end-of-file-fixer
+        exclude: '(\.ipynb|\.html)$'
+      - id: trailing-whitespace
+        exclude: '(\.ipynb|\.html)$'

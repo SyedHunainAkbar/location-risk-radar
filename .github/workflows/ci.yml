@@ -1,0 +1,70 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint-test:
+    name: lint + tests (coverage >= 80%)
+    runs-on: ubuntu-latest
+    env:
+      # Tests use the deterministic mock provider only. No real keys in CI.
+      LLM_PROVIDER: mock
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install -e ".[dev]"
+
+      - name: Install spaCy small model (optional NLP tests)
+        run: python -m spacy download en_core_web_sm || true
+
+      - name: Ruff lint
+        run: ruff check src app pipeline tests scripts
+
+      - name: Ruff format check
+        run: ruff format --check src app pipeline tests scripts
+
+      - name: Pytest with coverage (fail under 80% for src/lrr)
+        run: >-
+          python -m pytest
+          --cov=src/lrr --cov-report=term-missing --cov-report=xml
+          --cov-fail-under=80
+
+      - name: Upload coverage report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-xml
+          path: coverage.xml
+          if-no-files-found: ignore
+
+  gitleaks:
+    name: gitleaks (secret scan)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # full history so the scan covers every commit
+
+      - name: Run gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITLEAKS_CONFIG: .gitleaks.toml
