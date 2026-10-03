@@ -1,0 +1,54 @@
+# Raw Yelp data (gitignored; never commit the dataset, academic license)
+data/
+Yelp-JSON/
+Yelp-JSON.zip
+*.tar
+*.zip
+# Raw Yelp JSON lines (dataset). Project artifacts use parquet/npy, never .json.
+yelp_academic_dataset_*.json
+*.json
+
+# Secrets
+.env
+.streamlit/secrets.toml
+*.pem
+*.key
+
+# Large arrays. Committed artifacts must stay under 50 MB; large embeddings are
+# regenerated locally or sharded. Do not commit a .npy over the artifact cap.
+# (Git cannot enforce size; the audit script and CI check this.)
+data/**/*.npy
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.ipynb_checkpoints/
+.coverage
+htmlcov/
+
+# Virtual envs
+.venv/
+venv/
+env/
+
+# LLM gateway disk cache
+.cache/
+
+# OS cruft
+.DS_Store
+Thumbs.db
+
+# Scratch EDA drafts and duplicate submission copies (kept locally, not published).
+# The authoritative EDA lives in EDA/Final Submission/ and the final deliverable in
+# notebooks/.
+EDA/Draft/
+Submissions/
+*.docx
+*.pdf

@@ -1,0 +1,15 @@
+# Offline-only heavy dependencies for the pipeline and notebooks.
+# These are NOT installed on Streamlit Community Cloud.
+# Install locally with: pip install -r requirements.txt -r requirements-offline.txt
+
+-r requirements.txt
+
+bertopic==0.16.3
+umap-learn==0.5.6
+hdbscan==0.8.38
+tensorflow==2.16.2
+keras==3.4.1
+pytest==8.3.2
+
+# Larger spaCy English model used offline only.
+en-core-web-lg @ https://github.com/explosion/spacy-models/releases/download/en_core_web_lg-3.7.1/en_core_web_lg-3.7.1-py3-none-any.whl

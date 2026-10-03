@@ -1,0 +1,60 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "lrr"
+version = "0.1.0"
+description = "Location Risk Radar: early warning for restaurant chain location closure risk."
+readme = "README.md"
+requires-python = ">=3.11,<3.12"
+authors = [{ name = "LRR Analytics" }]
+license = { text = "MIT" }
+
+# Runtime deps for the deployed Streamlit app are pinned in requirements.txt.
+# Offline-only heavy deps are pinned in requirements-offline.txt.
+dependencies = []
+
+[project.optional-dependencies]
+test = ["pytest>=8,<10"]
+dev = [
+  "pytest>=8,<10",
+  "pytest-cov>=5",
+  "ruff>=0.6,<0.7",
+  "pre-commit>=3.8",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-dir]
+"" = "src"
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
+addopts = "-q"
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+extend-exclude = [".venv", "notebooks", "EDA", "Submissions", "Yelp-JSON"]
+
+[tool.ruff.lint]
+# Focused on correctness: pyflakes (unused imports/vars, undefined names),
+# pycodestyle errors, and import ordering. We keep the opinionated stylistic
+# families off so the gate flags real problems, not formatting preferences that
+# ruff-format already normalizes.
+select = ["E", "F", "I"]
+# E402: pipeline/app/test modules insert sys.path before imports by design.
+# E741: a few short math variable names (l, I) are clear in context.
+ignore = ["E402", "E741"]
+
+[tool.ruff.lint.per-file-ignores]
+"pipeline/*" = ["E402"]
+"tests/*" = ["E402"]
+"app/*" = ["E402"]
+
+[tool.coverage.run]
+source = ["src/lrr"]
+omit = ["*/__init__.py"]
