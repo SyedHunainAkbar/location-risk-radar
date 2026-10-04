@@ -1,15 +1,38 @@
-# Offline-only heavy dependencies for the pipeline and notebooks.
+# Offline-only dependencies for the pipeline and notebooks.
 # These are NOT installed on Streamlit Community Cloud.
 # Install locally with: pip install -r requirements.txt -r requirements-offline.txt
+#
+# This file carries every heavy training / NLP dependency the app does not need
+# at runtime. The app reads the precomputed artifacts these produce.
 
 -r requirements.txt
 
+# Classic ML and survival modeling (pipeline training only).
+scikit-learn==1.5.1
+scikit-survival==0.23.0
+xgboost==2.1.1
+shap==0.46.0
+lifelines==0.29.0
+
+# NLP: VADER sentiment, spaCy pipeline, and the index-building embedder.
+# sentence-transformers pulls torch; it builds the RAG index offline. The app
+# embeds live queries with fastembed (ONNX, no torch) instead.
+vaderSentiment==3.3.2
+spacy==3.7.5
+sentence-transformers==3.0.1
+
+# Topic modeling stack.
 bertopic==0.16.3
 umap-learn==0.5.6
 hdbscan==0.8.38
+
+# Deep-learning benchmark (offline notebooks only, never in the app).
 tensorflow==2.16.2
 keras==3.4.1
+
+# Testing.
 pytest==8.3.2
 
-# Larger spaCy English model used offline only.
+# spaCy English models: small for the app-equivalent path, large offline only.
+en-core-web-sm @ https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.7.1/en_core_web_sm-3.7.1-py3-none-any.whl
 en-core-web-lg @ https://github.com/explosion/spacy-models/releases/download/en_core_web_lg-3.7.1/en_core_web_lg-3.7.1-py3-none-any.whl

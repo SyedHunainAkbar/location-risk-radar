@@ -13,6 +13,7 @@ All LLM calls go through :mod:`lrr.llm`.
 
 from __future__ import annotations
 
+import os
 import re
 from collections.abc import Sequence
 from pathlib import Path
@@ -44,11 +45,49 @@ def chunk_text(text: str, max_words: int = config.RAG_CHUNK_MAX_WORDS) -> list[s
 
 
 def _encode(texts: Sequence[str], model_name: str = config.EMBEDDING_MODEL) -> np.ndarray:
-    """Embed texts with MiniLM (lazy import). Returns float32 (cast to f16 on save)."""
+    """Embed texts with MiniLM, returning float32 (cast to f16 on save).
+
+    We try a CPU-only ONNX backend (``fastembed``) first so the deployed app can
+    embed live queries without pulling ``torch`` into a 1 GB environment. If
+    ``fastembed`` is unavailable we fall back to ``sentence-transformers``, which
+    the offline pipeline already uses to build the index. Both target the same
+    ``all-MiniLM-L6-v2`` model, so query vectors stay compatible with the
+    precomputed index. The import is lazy and ``encode_fn`` can be injected in
+    tests to avoid loading any model.
+    """
+    items = list(texts)
+
+    # Preferred: ONNX MiniLM via fastembed (no torch, ~150 MB RAM). The encoder is
+    # cached on the module so repeated live queries do not reload the model.
+    try:
+        return _fastembed_encode(items)
+    except Exception:
+        pass
+
+    # Fallback: sentence-transformers (torch); used offline and in the pipeline.
     from sentence_transformers import SentenceTransformer
 
     encoder = SentenceTransformer(model_name)
-    return encoder.encode(list(texts), show_progress_bar=False, convert_to_numpy=True)
+    return encoder.encode(items, show_progress_bar=False, convert_to_numpy=True)
+
+
+_ONNX_ENCODER = None
+
+
+def _fastembed_encode(items: list[str]) -> np.ndarray:
+    """Embed with a cached fastembed ONNX MiniLM encoder (384-dim float32)."""
+    global _ONNX_ENCODER
+    if _ONNX_ENCODER is None:
+        # Disable the HuggingFace symlink cache before import. On Windows hosts
+        # without symlink privilege the symlinked cache corrupts the ONNX model
+        # and crashes onnxruntime; plain-copy caching avoids that and is a no-op
+        # on Linux (Streamlit Cloud).
+        os.environ.setdefault("HF_HUB_DISABLE_SYMLINKS", "1")
+        os.environ.setdefault("HF_HUB_DISABLE_SYMLINKS_WARNING", "1")
+        from fastembed import TextEmbedding
+
+        _ONNX_ENCODER = TextEmbedding(model_name=config.EMBEDDING_MODEL_ONNX)
+    return np.asarray(list(_ONNX_ENCODER.embed(items)), dtype="float32")
 
 
 def build_index(

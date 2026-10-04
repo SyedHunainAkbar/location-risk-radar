@@ -71,8 +71,10 @@ The raw Yelp data is not included (academic license). Download it yourself.
    checkin).
 2. **Point the pipeline at it.** Set `YELP_DIR` to the folder with the JSON files
    (copy `.env.example` to `.env` and fill in `YELP_DIR`).
-3. **Install.** `pip install -r requirements.txt` (and `requirements-offline.txt`
-   for the heavy offline stages: BERTopic, GloVe, TensorFlow).
+3. **Install.** For the full pipeline use `pip install -r requirements-offline.txt`
+   (it includes `requirements.txt` and adds the heavy offline stack: scikit-survival,
+   xgboost, shap, lifelines, spaCy, sentence-transformers, BERTopic, TensorFlow).
+   The deployed app installs only `requirements.txt`.
 4. **Run the pipeline in order.** Approximate runtimes on a laptop; the review file
    is about 5 GB.
 
@@ -104,6 +106,14 @@ streamlit run app/streamlit_app.py
 The app works with no API key (Cached mode). To enable Live mode, set a provider key
 (`OPENAI_API_KEY`, `NVIDIA_API_KEY`, or `VOYAGER_API_KEY`) in your environment or
 `.streamlit/secrets.toml`. Keys are read only from those sources and are never logged.
+
+### Deployment and memory
+
+The app reads precomputed artifacts only and is built to run in 1 GB RAM on Streamlit
+Community Cloud. `requirements.txt` deliberately excludes torch, scikit-survival, spaCy,
+BERTopic, and TensorFlow; the app reads their precomputed outputs instead. In Cached
+mode the app peaks near 100 MB. Live free-text RAG embeds the user query with a CPU-only
+ONNX MiniLM via `fastembed` (no torch), so the embedding step stays light.
 
 ## Repository structure
 

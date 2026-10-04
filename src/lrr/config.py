@@ -201,8 +201,12 @@ YELP_TIP_JSON: Path = YELP_DIR / "yelp_academic_dataset_tip.json"
 # Embeddings / topics
 # --------------------------------------------------------------------------- #
 
-#: Sentence-transformers model used for embeddings.
+#: Sentence-transformers model used for embeddings (offline index build).
 EMBEDDING_MODEL: str = "all-MiniLM-L6-v2"
+
+#: ONNX MiniLM used by the deployed app to embed live queries without torch.
+#: Same model family as :data:`EMBEDDING_MODEL`, so vectors stay index-compatible.
+EMBEDDING_MODEL_ONNX: str = "sentence-transformers/all-MiniLM-L6-v2"
 
 # --------------------------------------------------------------------------- #
 # LLM gateway (src/lrr/gateway)
