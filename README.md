@@ -2,17 +2,17 @@
 
 **Early warning for restaurant locations, explained by customer evidence.**
 
-[![CI](https://github.com/REPO_OWNER/location-risk-radar/actions/workflows/ci.yml/badge.svg)](https://github.com/REPO_OWNER/location-risk-radar/actions/workflows/ci.yml)
+[![CI](https://github.com/SyedHunainAkbar/location-risk-radar/actions/workflows/ci.yml/badge.svg)](https://github.com/SyedHunainAkbar/location-risk-radar/actions/workflows/ci.yml)
 [![Python 3.11](https://img.shields.io/badge/python-3.11-blue.svg)](https://www.python.org/downloads/release/python-3110/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
-[![Streamlit app](https://img.shields.io/badge/Streamlit-live%20app-ff4b4b.svg)](APP_URL_PLACEHOLDER)
+[![Streamlit](https://img.shields.io/badge/Streamlit-run%20locally-ff4b4b.svg)](app/streamlit_app.py)
 
 We flag restaurant chain locations at elevated risk of closure and explain why using
 the language of customer reviews. The default operating metric, average star rating,
 barely separates survivors from closures, so we build the signal from engagement
 dynamics and review text instead.
 
-- Live app: APP_URL_PLACEHOLDER
+- App: runs locally with `streamlit run app/streamlit_app.py` (see Run the app below)
 - Final notebook: [`notebooks/Location_Risk_Radar_Final.ipynb`](notebooks/Location_Risk_Radar_Final.ipynb)
 
 ## 30-second summary
