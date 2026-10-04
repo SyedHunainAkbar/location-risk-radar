@@ -64,7 +64,15 @@ jobs:
         with:
           fetch-depth: 0  # full history so the scan covers every commit
 
-      - name: Run gitleaks
-        uses: gitleaks/gitleaks-action@v2
-        env:
-          GITLEAKS_CONFIG: .gitleaks.toml
+      - name: Install gitleaks
+        run: |
+          GITLEAKS_VERSION=8.24.3
+          curl -sSL "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" \
+            | tar -xz -C /usr/local/bin gitleaks
+          gitleaks version
+
+      - name: Scan git history for secrets
+        run: gitleaks git --config .gitleaks.toml --redact --verbose --exit-code 1
+
+      - name: Scan working tree for secrets
+        run: gitleaks dir --config .gitleaks.toml --redact --verbose --exit-code 1
