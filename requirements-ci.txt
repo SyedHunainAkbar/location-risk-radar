@@ -1,0 +1,22 @@
+# CI/test dependencies.
+# The test suite exercises the modeling and NLP modules but deliberately does
+# NOT run BERTopic, UMAP, HDBSCAN, or TensorFlow (see tests/test_topics.py and
+# tests/test_sentiment.py). So CI installs the app runtime plus only the libraries
+# the tests actually import, which keeps CI fast and avoids the heavy topic/DL stack.
+
+-r requirements.txt
+
+# Classic ML and survival modeling exercised by the tests.
+scikit-learn==1.5.1
+scikit-survival==0.23.0
+xgboost==2.1.1
+shap==0.46.0
+lifelines==0.29.0
+
+# NLP exercised by the tests: VADER, spaCy pipeline, and the index embedder.
+vaderSentiment==3.3.2
+spacy==3.7.5
+sentence-transformers==3.0.1
+
+# Small spaCy English model used by the text tests.
+en-core-web-sm @ https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.7.1/en_core_web_sm-3.7.1-py3-none-any.whl
