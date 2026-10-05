@@ -157,11 +157,17 @@ def _retrieve(bid: str):
         from lrr import rag
 
         emb_path = data.config.RAG_INDEX_DIR / data.config.RAG_EMBEDDINGS_FILE
-        if emb_path.exists():
+        qvecs = data.encode_query(["Why is this location at risk?"])
+        if emb_path.exists() and qvecs is not None:
             emb, meta = rag.load_index(data.config.RAG_INDEX_DIR)
-            qvec = rag._encode(["Why is this location at risk?"])[0]
             got = rag.retrieve(
-                qvec, emb, meta, business_id=bid, k=data.config.RAG_TOP_K, use_mmr=True, max_stars=2
+                qvecs[0],
+                emb,
+                meta,
+                business_id=bid,
+                k=data.config.RAG_TOP_K,
+                use_mmr=True,
+                max_stars=2,
             )
             return got
     except Exception:

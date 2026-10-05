@@ -242,6 +242,48 @@ MODEL_PRICES_PER_1K: dict[str, tuple[float, float]] = {
     "qwen/qwen2.5-7b-instruct": (0.0, 0.0),
 }
 
+
+def _env_int(name: str, default: int) -> int:
+    """Read a non-negative int from the environment, falling back to ``default``."""
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    try:
+        value = int(raw)
+    except (TypeError, ValueError):
+        return default
+    return value if value >= 0 else default
+
+
+def _env_float(name: str, default: float) -> float:
+    """Read a non-negative float from the environment, falling back to ``default``."""
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    try:
+        value = float(raw)
+    except (TypeError, ValueError):
+        return default
+    return value if value >= 0 else default
+
+
+# --------------------------------------------------------------------------- #
+# Abuse protection on a public URL (Streamlit Community Cloud)
+# --------------------------------------------------------------------------- #
+
+#: Per-session cap on live model calls. Overridable via the LIVE_CALL_CAP secret.
+LIVE_CALL_CAP: int = _env_int("LIVE_CALL_CAP", 25)
+
+#: Hard ceiling on max_tokens for any single live call, regardless of the route.
+GATEWAY_MAX_TOKENS_PER_CALL: int = _env_int("GATEWAY_MAX_TOKENS_PER_CALL", 1024)
+
+#: Global daily spend guard (USD, estimated). Live calls are refused once the
+#: running estimate for the current UTC day exceeds this. 0 disables the guard.
+GATEWAY_DAILY_BUDGET_USD: float = _env_float("GATEWAY_DAILY_BUDGET_USD", 2.0)
+
+#: Providers that only work from a local run (ASU VPN) and are hidden on the cloud.
+VPN_ONLY_PROVIDERS: tuple[str, ...] = ("voyager",)
+
 # --------------------------------------------------------------------------- #
 # Text and sentiment (stage 02)
 # --------------------------------------------------------------------------- #

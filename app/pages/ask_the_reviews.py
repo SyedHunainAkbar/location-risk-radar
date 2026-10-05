@@ -134,11 +134,11 @@ def _retrieve(bid: str, question: str):
         from lrr import rag
 
         emb_path = data.config.RAG_INDEX_DIR / data.config.RAG_EMBEDDINGS_FILE
-        if emb_path.exists():
+        qvecs = data.encode_query([question])
+        if emb_path.exists() and qvecs is not None:
             emb, meta = rag.load_index(data.config.RAG_INDEX_DIR)
-            qvec = rag._encode([question])[0]
             return rag.retrieve(
-                qvec, emb, meta, business_id=bid, k=data.config.RAG_TOP_K, use_mmr=True
+                qvecs[0], emb, meta, business_id=bid, k=data.config.RAG_TOP_K, use_mmr=True
             )
     except Exception:
         pass

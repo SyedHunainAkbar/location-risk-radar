@@ -35,8 +35,9 @@ def render() -> None:
 
 
 def _gateway_panel() -> None:
-    from lrr import gateway
+    from lrr import config, gateway
     from lrr.gateway import health
+    from lrr.gateway import providers as _providers
 
     st.sidebar.markdown("## LLM Gateway")
     keys = state.any_key_present()
@@ -46,6 +47,11 @@ def _gateway_panel() -> None:
     dot = {True: "🟢", False: "🔴"}
     name = {"openai": "OpenAI", "nvidia": "NVIDIA", "voyager": "Voyager", "mock": "Mock"}
     for p in ("openai", "nvidia", "voyager", "mock"):
+        if not _providers.provider_available(p):
+            # VPN-only provider on Streamlit Cloud: show it as disabled with a note.
+            st.sidebar.write(f"⚪ {name[p]} (disabled)")
+            st.sidebar.caption("Voyager requires the ASU VPN and is available in local runs only.")
+            continue
         try:
             ok = health.check_provider(p)
         except Exception:
@@ -80,3 +86,14 @@ def _gateway_panel() -> None:
         tok = int(df.get("prompt_tokens", 0).sum() + df.get("completion_tokens", 0).sum())
         cost = float(df.get("est_cost_usd", 0).sum())
         st.sidebar.caption(f"Tokens this session: {tok:,} | Est. cost: ${cost:.4f}")
+
+    # Global daily spend guard (shared across all visitors in this app process).
+    budget = config.GATEWAY_DAILY_BUDGET_USD
+    if budget:
+        spent = gateway.DAILY_BUDGET.spent_today
+        st.sidebar.progress(
+            min(spent / budget, 1.0),
+            text=f"Daily budget: ${spent:.4f} / ${budget:.2f}",
+        )
+        if gateway.DAILY_BUDGET.exceeded():
+            st.sidebar.caption("Daily budget reached. Serving cached results for everyone today.")

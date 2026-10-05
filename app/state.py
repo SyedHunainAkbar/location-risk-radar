@@ -17,19 +17,25 @@ _SRC = Path(__file__).resolve().parents[1] / "src"
 if str(_SRC) not in sys.path:
     sys.path.insert(0, str(_SRC))
 
+from lrr import config as _config  # noqa: E402
 from lrr.gateway import providers as _providers  # noqa: E402
 
-LIVE_CALL_CAP = 25
+#: Per-session live-call cap, sourced from config (LIVE_CALL_CAP secret/env).
+LIVE_CALL_CAP = _config.LIVE_CALL_CAP
 FILTER_KEYS = ("f_cluster", "f_chain", "f_state", "f_tier")
 
 
 def init_state() -> None:
-    """Seed session defaults once."""
+    """Seed session defaults once.
+
+    First-time visitors always start in Cached mode, even when a key is present, so
+    a public URL never spends on a cold open. Users opt into Live from the sidebar.
+    """
     ss = st.session_state
     for k in FILTER_KEYS:
         ss.setdefault(k, [])
     ss.setdefault("live_calls", 0)
-    ss.setdefault("gateway_mode", "Live" if any_key_present() else "Cached")
+    ss.setdefault("gateway_mode", "Cached")
 
 
 def any_key_present() -> bool:

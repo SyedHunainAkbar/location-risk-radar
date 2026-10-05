@@ -36,26 +36,77 @@ PROVIDER_KEY_ENV: dict[str, str] = {
 }
 
 
-def get_secret(name: str) -> str | None:
-    """Read a secret from the environment, then ``st.secrets``. Never cached."""
-    value = os.environ.get(name)
-    if value:
-        return value
-    try:  # pragma: no cover - only under Streamlit
+def _secrets_file_exists() -> bool:
+    """True if a Streamlit secrets.toml is present in any location Streamlit reads.
+
+    We check this before touching ``st.secrets`` because accessing it with no file
+    present makes Streamlit raise and render a visible "No secrets found" error. On
+    a keyless public deploy that would spray errors across every page.
+    """
+    candidates = [
+        os.path.expanduser("~/.streamlit/secrets.toml"),
+        os.path.join(os.getcwd(), ".streamlit", "secrets.toml"),
+        "/mount/src/.streamlit/secrets.toml",
+    ]
+    return any(os.path.isfile(p) for p in candidates)
+
+
+def _secret_from_streamlit(name: str) -> str | None:
+    """Read ``st.secrets[name]`` only when a secrets file exists; silent otherwise."""
+    if not _secrets_file_exists():
+        return None
+    try:  # pragma: no cover - only under Streamlit with a secrets file
         import streamlit as st
 
-        secret = st.secrets.get(name)  # type: ignore[attr-defined]
-        if secret:
-            return str(secret)
+        if name in st.secrets:
+            value = st.secrets[name]
+            return str(value) if value else None
     except Exception:
-        pass
+        return None
     return None
 
 
+def get_secret(name: str) -> str | None:
+    """Read a secret from ``st.secrets`` first, then the environment. Never cached."""
+    secret = _secret_from_streamlit(name)
+    if secret:
+        return secret
+    value = os.environ.get(name)
+    return value or None
+
+
+def is_streamlit_cloud() -> bool:
+    """True when running on Streamlit Community Cloud.
+
+    The platform sets ``HOSTNAME`` to a value that starts with ``streamlit`` and
+    exposes ``/mount/src`` as the app root. We also honor an explicit override via
+    ``STREAMLIT_CLOUD=1`` so the behavior can be forced in tests or local checks.
+    """
+    if os.environ.get("STREAMLIT_CLOUD", "").strip() in ("1", "true", "True"):
+        return True
+    hostname = os.environ.get("HOSTNAME", "")
+    return hostname.startswith("streamlit") or os.path.isdir("/mount/src")
+
+
+def provider_available(provider: str) -> bool:
+    """False for VPN-only providers (for example Voyager) on Streamlit Cloud."""
+    from lrr import config
+
+    if provider in config.VPN_ONLY_PROVIDERS and is_streamlit_cloud():
+        return False
+    return True
+
+
 def has_key(provider: str) -> bool:
-    """True if the provider is mock or has a usable key available."""
+    """True if the provider is mock or has a usable key available.
+
+    VPN-only providers (Voyager) report no usable key on Streamlit Cloud so the UI
+    and routing both treat them as unavailable there.
+    """
     if provider == "mock":
         return True
+    if not provider_available(provider):
+        return False
     env = PROVIDER_KEY_ENV.get(provider)
     return bool(env and get_secret(env))
 

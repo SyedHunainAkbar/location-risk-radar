@@ -142,6 +142,36 @@ def _cached_read(path_str: str) -> pd.DataFrame | None:
         return None
 
 
+@st.cache_resource(show_spinner=False)
+def _query_encoder():
+    """Load the live-query embedder once and keep it as a shared Streamlit resource.
+
+    Returns a callable ``encode(list[str]) -> np.ndarray`` backed by the CPU-only
+    ONNX MiniLM in :func:`lrr.rag._encode`, or ``None`` if the backend is
+    unavailable. Caching with ``st.cache_resource`` means the model loads at most
+    once per app process, so repeat live queries do not pay the cold-start cost.
+    """
+    try:
+        from lrr import rag
+
+        # Warm the backend once so the first user query is fast.
+        rag._encode(["warmup"])
+        return rag._encode
+    except Exception:
+        return None
+
+
+def encode_query(texts):
+    """Embed query texts via the cached encoder, or None if unavailable."""
+    encoder = _query_encoder()
+    if encoder is None:
+        return None
+    try:
+        return encoder(list(texts))
+    except Exception:
+        return None
+
+
 def _validate(df: pd.DataFrame, art: Artifact) -> pd.DataFrame:
     """Soft contract: we keep known columns in mind but never raise to the UI.
 

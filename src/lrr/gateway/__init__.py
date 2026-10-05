@@ -17,6 +17,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 
 from lrr.gateway.core import (
+    DAILY_BUDGET,
     Gateway,
     GatewayError,
     GatewayResult,
@@ -37,6 +38,7 @@ __all__ = [
     "GatewayError",
     "get_gateway",
     "reset_gateway",
+    "DAILY_BUDGET",
     "Ledger",
     "LedgerRow",
     "redact",

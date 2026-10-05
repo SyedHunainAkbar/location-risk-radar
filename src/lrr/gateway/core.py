@@ -31,6 +31,45 @@ class GatewayError(RuntimeError):
     """Raised when every provider in the chain fails."""
 
 
+class _DailyBudget:
+    """Process-wide estimated spend guard, reset each UTC day.
+
+    This is a soft, best-effort guard for a public URL. It bounds spend across all
+    sessions in a single app process; it is not a hard billing control.
+    """
+
+    def __init__(self) -> None:
+        self._day: str | None = None
+        self._spent: float = 0.0
+
+    def _roll(self) -> None:
+        from datetime import datetime, timezone
+
+        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        if today != self._day:
+            self._day = today
+            self._spent = 0.0
+
+    def exceeded(self) -> bool:
+        budget = config.GATEWAY_DAILY_BUDGET_USD
+        if not budget:
+            return False
+        self._roll()
+        return self._spent >= budget
+
+    def add(self, cost: float) -> None:
+        self._roll()
+        self._spent += max(0.0, float(cost))
+
+    @property
+    def spent_today(self) -> float:
+        self._roll()
+        return self._spent
+
+
+DAILY_BUDGET = _DailyBudget()
+
+
 @dataclass
 class GatewayResult:
     text: str
@@ -118,11 +157,26 @@ class Gateway:
     def _resolve_chain(self, role: str) -> list[routing.RouteEntry]:
         chain = routing.get_chain(role, self.routes)
         healthy = health.healthy_providers(ping=self._health_ping)
-        resolved = [e for e in chain if e.provider == "mock" or e.provider in healthy]
+        resolved = [
+            self._clamp_tokens(e)
+            for e in chain
+            if e.provider == "mock"
+            or (e.provider in healthy and providers.provider_available(e.provider))
+        ]
         # Always guarantee a terminal mock so a keyless run answers.
         if not any(e.provider == "mock" for e in resolved):
             resolved.append(routing.RouteEntry("mock", None, 0.0, 256, 30))
         return resolved
+
+    @staticmethod
+    def _clamp_tokens(entry: routing.RouteEntry) -> routing.RouteEntry:
+        """Clamp a route's max_tokens to the global per-call ceiling."""
+        ceiling = config.GATEWAY_MAX_TOKENS_PER_CALL
+        if ceiling and entry.max_tokens > ceiling:
+            return routing.RouteEntry(
+                entry.provider, entry.model, entry.temperature, ceiling, entry.timeout
+            )
+        return entry
 
     # ------------------------------------------------------------------ #
     # One provider call with retries and empty-content handling
@@ -171,7 +225,8 @@ class Gateway:
                 return text, resp
             if empty_retries > 0:  # reasoning model spent budget on hidden tokens
                 empty_retries -= 1
-                max_tokens = int(max_tokens * 2)
+                ceiling = config.GATEWAY_MAX_TOKENS_PER_CALL or (max_tokens * 2)
+                max_tokens = min(int(max_tokens * 2), ceiling)
                 continue
             raise GatewayError(f"{entry.provider} returned empty content")
         raise GatewayError(f"{entry.provider} failed: {last_exc}")
@@ -235,6 +290,10 @@ class Gateway:
             # Cached-only mode: never hit the network; answer from mock.
             chain = [routing.RouteEntry("mock", None, 0.0, 256, 30)]
 
+        # Global daily spend guard: once exceeded, serve only mock for this process.
+        if DAILY_BUDGET.exceeded():
+            chain = [routing.RouteEntry("mock", None, 0.0, 256, 30)]
+
         start = time.time()
         prompt_text = "\n".join(m.get("content", "") for m in messages)
         last_exc: Exception | None = None
@@ -261,6 +320,9 @@ class Gateway:
             else:
                 pt, ct = providers.estimate_tokens(prompt_text), providers.estimate_tokens(text)
             fallback_used = i > 0
+            call_cost = estimate_cost(entry.model, pt, ct)
+            if entry.provider != "mock":
+                DAILY_BUDGET.add(call_cost)
             self.ledger.append(
                 LedgerRow(
                     role=role,
@@ -269,7 +331,7 @@ class Gateway:
                     latency_s=round(latency, 3),
                     prompt_tokens=pt,
                     completion_tokens=ct,
-                    est_cost_usd=estimate_cost(entry.model, pt, ct),
+                    est_cost_usd=call_cost,
                     cache_hit=False,
                     fallback_used=fallback_used,
                 )
