@@ -22,6 +22,9 @@ pyyaml==6.0.2
 # Grounding checks (rapidfuzz) and the OpenAI-compatible gateway client.
 rapidfuzz==3.9.7
 openai==1.51.0
+# Pin httpx below 0.28: openai 1.51 passes proxies= to httpx.Client, which httpx
+# 0.28 removed. Without this pin every live provider call raises and falls to mock.
+httpx==0.27.2
 
 # Visualization (both have graceful native-Streamlit fallbacks if absent).
 plotly==5.24.1

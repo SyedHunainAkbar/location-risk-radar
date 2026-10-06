@@ -27,39 +27,33 @@ class RouteEntry:
 
 
 #: In-code fallback mirroring config/gateway.yaml (used if the file/pyyaml is absent).
+_NV_PRIMARY = "meta/llama-3.2-90b-vision-instruct"
+_NV_JUDGE = "meta/llama-3.2-11b-vision-instruct"
+
 DEFAULT_ROUTES: dict[str, list[tuple[str, str | None, dict]]] = {
     "quant_analyst": [
-        ("openai", "gpt-4o-mini", {"temperature": 0.0}),
-        ("nvidia", "meta/llama-3.3-70b-instruct", {"temperature": 0.0}),
+        ("nvidia", _NV_PRIMARY, {"temperature": 0.0}),
         ("mock", None, {"temperature": 0.0}),
     ],
     "voice_of_customer": [
-        ("nvidia", "meta/llama-3.3-70b-instruct", {"temperature": 0.3}),
-        ("openai", "gpt-4o-mini", {"temperature": 0.3}),
-        ("voyager", "llama4-scout-17b", {"temperature": 0.3}),
+        ("nvidia", _NV_PRIMARY, {"temperature": 0.3}),
         ("mock", None, {"temperature": 0.3}),
     ],
     "risk_auditor": [
-        ("nvidia", "qwen/qwen2.5-72b-instruct", {"temperature": 0.0}),
-        ("voyager", "qwen3-235b-a22b-instruct-2507", {"temperature": 0.0}),
-        ("openai", "gpt-4o-mini", {"temperature": 0.0}),
+        ("nvidia", _NV_JUDGE, {"temperature": 0.0}),
+        ("nvidia", _NV_PRIMARY, {"temperature": 0.0}),
         ("mock", None, {"temperature": 0.0}),
     ],
     "topic_labeler": [
-        ("openai", "gpt-4o-mini", {"temperature": 0.0, "max_tokens": 16}),
-        ("nvidia", "meta/llama-3.3-70b-instruct", {"temperature": 0.0, "max_tokens": 16}),
+        ("nvidia", _NV_PRIMARY, {"temperature": 0.0, "max_tokens": 16}),
         ("mock", None, {"temperature": 0.0, "max_tokens": 16}),
     ],
     "rag_answer": [
-        ("nvidia", "meta/llama-3.3-70b-instruct", {"temperature": 0.0, "max_tokens": 512}),
-        ("openai", "gpt-4o-mini", {"temperature": 0.0, "max_tokens": 512}),
-        ("voyager", "llama4-scout-17b", {"temperature": 0.0, "max_tokens": 512}),
+        ("nvidia", _NV_PRIMARY, {"temperature": 0.0, "max_tokens": 512}),
         ("mock", None, {"temperature": 0.0, "max_tokens": 512}),
     ],
     "rag_judge": [
-        ("nvidia", "qwen/qwen2.5-7b-instruct", {"temperature": 0.0, "max_tokens": 8}),
-        ("openai", "gpt-4o-mini", {"temperature": 0.0, "max_tokens": 8}),
-        ("voyager", "qwen3-235b-a22b-instruct-2507", {"temperature": 0.0, "max_tokens": 8}),
+        ("nvidia", _NV_JUDGE, {"temperature": 0.0, "max_tokens": 8}),
         ("mock", None, {"temperature": 0.0, "max_tokens": 8}),
     ],
 }

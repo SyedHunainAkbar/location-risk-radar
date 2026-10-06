@@ -2,6 +2,12 @@
 # "provider:model" entries plus shared call parameters. The gateway tries entries
 # in order and uses the first that succeeds. "mock" is always the terminal fallback
 # so a keyless run still answers.
+#
+# Model ids verified against the NVIDIA Integrate endpoint (chat completions). The
+# retired meta/llama-3.3-70b-instruct and qwen2.5 ids returned 410 Gone and were
+# replaced. OpenAI was removed because the provided key failed auth (401). Voyager
+# is ASU-VPN-only and cannot be reached from the deploy host, so it is not in the
+# chains; the app also auto-disables it on Streamlit Cloud.
 
 defaults:
   temperature: 0.2
@@ -12,48 +18,39 @@ roles:
   quant_analyst:
     temperature: 0.0
     chain:
-      - openai:gpt-4o-mini
-      - nvidia:meta/llama-3.3-70b-instruct
+      - nvidia:meta/llama-3.2-90b-vision-instruct
       - mock
 
   voice_of_customer:
     temperature: 0.3
     chain:
-      - nvidia:meta/llama-3.3-70b-instruct
-      - openai:gpt-4o-mini
-      - voyager:llama4-scout-17b
+      - nvidia:meta/llama-3.2-90b-vision-instruct
       - mock
 
   risk_auditor:
     temperature: 0.0
     chain:
-      - nvidia:qwen/qwen2.5-72b-instruct
-      - voyager:qwen3-235b-a22b-instruct-2507
-      - openai:gpt-4o-mini
+      - nvidia:meta/llama-3.2-11b-vision-instruct
+      - nvidia:meta/llama-3.2-90b-vision-instruct
       - mock
 
   topic_labeler:
     temperature: 0.0
     max_tokens: 16
     chain:
-      - openai:gpt-4o-mini
-      - nvidia:meta/llama-3.3-70b-instruct
+      - nvidia:meta/llama-3.2-90b-vision-instruct
       - mock
 
   rag_answer:
     temperature: 0.0
     max_tokens: 512
     chain:
-      - nvidia:meta/llama-3.3-70b-instruct
-      - openai:gpt-4o-mini
-      - voyager:llama4-scout-17b
+      - nvidia:meta/llama-3.2-90b-vision-instruct
       - mock
 
   rag_judge:
     temperature: 0.0
     max_tokens: 8
     chain:
-      - nvidia:qwen/qwen2.5-7b-instruct
-      - openai:gpt-4o-mini
-      - voyager:qwen3-235b-a22b-instruct-2507
+      - nvidia:meta/llama-3.2-11b-vision-instruct
       - mock

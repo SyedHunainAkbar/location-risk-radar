@@ -237,9 +237,8 @@ LLM_LEDGER_FILE: str = "llm_ledger.parquet"
 #: Rough per-1K-token prices (USD) for cost estimates; 0.0 default for unknown/mock.
 MODEL_PRICES_PER_1K: dict[str, tuple[float, float]] = {
     "gpt-4o-mini": (0.00015, 0.0006),
-    "meta/llama-3.3-70b-instruct": (0.0, 0.0),
-    "qwen/qwen2.5-72b-instruct": (0.0, 0.0),
-    "qwen/qwen2.5-7b-instruct": (0.0, 0.0),
+    "meta/llama-3.2-90b-vision-instruct": (0.0, 0.0),
+    "meta/llama-3.2-11b-vision-instruct": (0.0, 0.0),
 }
 
 
@@ -454,14 +453,16 @@ ASPECT_BOTTOM_K_LOCATIONS: int = 10
 ASPECT_REVIEWS_PER_LOCATION: int = 10
 
 #: RAG index: recent reviews per location, chunk size, retrieval settings.
-RAG_RECENT_REVIEWS: int = 150
+RAG_RECENT_REVIEWS: int = 50
 RAG_CHUNK_MAX_WORDS: int = 120
 RAG_TOP_K: int = 8
 RAG_MMR_LAMBDA: float = 0.5
 
-#: RAG answerer and judge models (judge is a different family).
-RAG_ANSWER_MODEL: str = "meta/llama-3.3-70b-instruct"
-RAG_JUDGE_MODEL: str = "qwen/qwen2.5-7b-instruct"
+#: RAG answerer and judge models (judge is a different model for independence).
+#: Verified against the NVIDIA Integrate endpoint; the older llama-3.3/qwen2.5 ids
+#: were retired (410 Gone).
+RAG_ANSWER_MODEL: str = "meta/llama-3.2-90b-vision-instruct"
+RAG_JUDGE_MODEL: str = "meta/llama-3.2-11b-vision-instruct"
 
 #: Six standard operator questions precomputed per high-risk location.
 RAG_STANDARD_QUESTIONS: tuple[str, ...] = (
