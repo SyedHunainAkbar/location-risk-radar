@@ -170,42 +170,44 @@ def _risk_map(view: pd.DataFrame) -> None:
     import plotly.graph_objects as go
 
     colors = dict(theme.TIER_COLORS, **{"Not scored": "#A0A4AB"})
-    # Streamlit 1.38 ships a plotly.js that renders the token-free "mapbox" carto
-    # style; newer plotly versions only offer the MapLibre "map" trace. Use whichever
-    # this environment provides.
-    use_mapbox = hasattr(go, "Scattermapbox")
-    Trace = go.Scattermapbox if use_mapbox else go.Scattermap
+    # Scattergeo draws state and country outlines itself: no map tiles, no API key,
+    # nothing external to break on the hosted app.
     fig = go.Figure()
     for tier in ["Not scored", "Low", "Watch", "Elevated", "High"]:
         d = m[m["tier"] == tier]
         if d.empty:
             continue
         fig.add_trace(
-            Trace(
+            go.Scattergeo(
                 lat=d["lat"].tolist(),
                 lon=d["lon"].tolist(),
                 mode="markers",
                 name=f"{tier} ({len(d)})",
-                marker={"size": size[tier] * 1.6, "color": colors[tier],
-                        "opacity": 0.55 if tier in ("Low", "Not scored") else 0.9},
+                marker={"size": size[tier] * 1.3, "color": colors[tier],
+                        "opacity": 0.7 if tier in ("Low", "Not scored") else 0.95,
+                        "line": {"width": 0.5, "color": "white"}},
                 text=d["hover"].tolist(),
                 hovertemplate="%{text}<extra></extra>",
             )
         )
-    lat0, lat1 = m["lat"].quantile([0.02, 0.98])
-    lon0, lon1 = m["lon"].quantile([0.02, 0.98])
-    import math
-
-    span = max(lat1 - lat0, (lon1 - lon0) / 1.6, 0.05)
-    zoom = float(max(2.3, min(11, 7.6 - math.log2(span))))
+    pad_lat = max(1.0, (m["lat"].max() - m["lat"].min()) * 0.08)
+    pad_lon = max(1.0, (m["lon"].max() - m["lon"].min()) * 0.08)
+    fig.update_geos(
+        scope="north america",
+        projection_type="mercator",
+        showland=True, landcolor="#F4F5F7",
+        showlakes=True, lakecolor="#DDE7F0",
+        showocean=True, oceancolor="#EAF1F7",
+        showcountries=True, countrycolor="#9AA1AB",
+        showsubunits=True, subunitcolor="#C3C8CF",
+        lataxis_range=[m["lat"].min() - pad_lat, m["lat"].max() + pad_lat],
+        lonaxis_range=[m["lon"].min() - pad_lon, m["lon"].max() + pad_lon],
+    )
     fig.update_layout(
-        **{("mapbox" if use_mapbox else "map"): {
-            "style": "carto-positron", "zoom": zoom,
-            "center": {"lat": float((lat0 + lat1) / 2), "lon": float((lon0 + lon1) / 2)}}},
         height=520,
         margin={"l": 0, "r": 0, "t": 0, "b": 0},
-        legend={"title": "Risk tier", "yanchor": "top", "y": 0.98, "xanchor": "left",
-                "x": 0.01, "bgcolor": "rgba(255,255,255,0.85)"},
+        legend={"title": "Risk tier (click to hide/show)", "yanchor": "bottom", "y": 0.02,
+                "xanchor": "right", "x": 0.99, "bgcolor": "rgba(255,255,255,0.9)"},
     )
     st.plotly_chart(fig, use_container_width=True)
     tiers = [t for t in ["High", "Elevated", "Watch", "Low", "Not scored"]
