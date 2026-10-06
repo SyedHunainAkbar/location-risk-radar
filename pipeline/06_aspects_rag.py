@@ -46,6 +46,13 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default=600,
         help="Max reviews to run through the aspect agents (cost cap).",
     )
+    p.add_argument(
+        "--per-chain",
+        type=int,
+        default=0,
+        help="If >0, sample this many reviews per chain stratified by star rating "
+        "(seed 42) instead of the risk-stratified sample. Keeps live cost bounded.",
+    )
     p.add_argument("--reviews", type=Path, default=config.DATA_DIR / config.COHORT_REVIEWS_FILE)
     p.add_argument("--tips", type=Path, default=config.DATA_DIR / config.COHORT_TIPS_FILE)
     p.add_argument(
@@ -111,6 +118,48 @@ def build_aspect_sample(
     return rev.reset_index(drop=True)
 
 
+def build_per_chain_sample(
+    reviews: pd.DataFrame,
+    locations: pd.DataFrame,
+    T: pd.Timestamp,
+    per_chain: int,
+    seed: int = config.SEED,
+) -> pd.DataFrame:
+    """Sample ``per_chain`` pre-T reviews per chain, stratified by star rating.
+
+    For each chain we allocate the per-chain budget across the star ratings present
+    (1..5) as evenly as possible, filling any shortfall from the remaining reviews
+    by recency. Deterministic under ``seed``. Keeps the live aspect-agent run small.
+    """
+    loc = locations[["business_id", "chain"]].drop_duplicates()
+    rev = reviews.copy()
+    rev["date"] = pd.to_datetime(rev["date"], errors="coerce")
+    rev = rev.merge(loc, on="business_id", how="inner")
+    rev = rev[rev["date"] < T]
+    rev["stars"] = pd.to_numeric(rev["stars"], errors="coerce")
+
+    out = []
+    for chain, grp in rev.groupby("chain"):
+        stars_present = sorted(s for s in grp["stars"].dropna().unique())
+        if not stars_present:
+            continue
+        base = per_chain // len(stars_present)
+        extra = per_chain - base * len(stars_present)
+        picks = []
+        for i, s in enumerate(stars_present):
+            k = base + (1 if i < extra else 0)
+            sub = grp[grp["stars"] == s]
+            picks.append(sub.sample(n=min(k, len(sub)), random_state=seed))
+        taken = pd.concat(picks) if picks else grp.head(0)
+        if len(taken) < per_chain:
+            rest = grp[~grp.index.isin(taken.index)].sort_values("date", ascending=False)
+            taken = pd.concat([taken, rest.head(per_chain - len(taken))])
+        out.append(taken.head(per_chain))
+    sample = pd.concat(out).reset_index(drop=True) if out else rev.head(0)
+    sample["risk_tier"] = "n/a"
+    return sample
+
+
 def _load_checkpoint(path: Path) -> dict[str, dict]:
     done: dict[str, dict] = {}
     if Path(path).exists():
@@ -131,10 +180,19 @@ def run_aspects(args: argparse.Namespace) -> dict:
         print("[warn] risk_scores not found; aspects phase needs stage 05 output.")
         return {}
 
-    sample = build_aspect_sample(reviews, risk_scores, T, args.sample_size)
-    print(
-        f"Aspect sample: {len(sample)} reviews across {sample['business_id'].nunique()} locations."
-    )
+    if getattr(args, "per_chain", 0):
+        locations = io.read_parquet(args.locations)
+        sample = build_per_chain_sample(reviews, locations, T, args.per_chain)
+        print(
+            f"Aspect sample (LIVE): {len(sample)} reviews, {args.per_chain}/chain "
+            f"stratified by star rating across {sample['chain'].nunique()} chains."
+        )
+    else:
+        sample = build_aspect_sample(reviews, risk_scores, T, args.sample_size)
+        print(
+            f"Aspect sample: {len(sample)} reviews across "
+            f"{sample['business_id'].nunique()} locations."
+        )
 
     done = _load_checkpoint(args.checkpoint)
     print(f"Resuming from checkpoint with {len(done)} completed reviews.")
@@ -231,7 +289,9 @@ def run_rag(args: argparse.Namespace) -> dict:
     locations = io.read_parquet(args.locations)
     risk_scores = _read_optional(args.risk_scores)
 
-    meta_info = rag.build_index(reviews, tips, locations, out_dir=args.index_dir)
+    meta_info = rag.build_index(
+        reviews, tips, locations, out_dir=args.index_dir, landmark=pd.Timestamp(args.landmark)
+    )
     print(f"Built RAG index: {meta_info['n_chunks']} chunks, {meta_info['bytes'] / 1e6:.1f} MB.")
 
     embeddings, metadata = rag.load_index(args.index_dir)
