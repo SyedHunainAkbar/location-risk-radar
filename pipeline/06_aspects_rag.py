@@ -215,6 +215,8 @@ def run_aspects(args: argparse.Namespace) -> dict:
                 "actual_stars": float(row["stars"]),
                 "predicted_stars": analysis["predicted_stars"],
                 "overall_score": analysis["overall_score"],
+                "aspect_predicted_stars": analysis.get("aspect_predicted_stars"),
+                "schema_failures": analysis.get("schema_failures", 0),
                 "dropped_quotes": analysis["dropped_quotes"],
             }
             records.append(rec)
@@ -289,16 +291,33 @@ def run_rag(args: argparse.Namespace) -> dict:
     locations = io.read_parquet(args.locations)
     risk_scores = _read_optional(args.risk_scores)
 
-    meta_info = rag.build_index(
-        reviews, tips, locations, out_dir=args.index_dir, landmark=pd.Timestamp(args.landmark)
-    )
+    import os as _os
+
+    _emb = Path(args.index_dir) / config.RAG_EMBEDDINGS_FILE
+    _meta = Path(args.index_dir) / config.RAG_METADATA_FILE
+    if _os.environ.get("LRR_REUSE_INDEX") == "1" and _emb.exists() and _meta.exists():
+        # Reuse an index already built on disk (embedding takes ~30 min on CPU).
+        _m = io.read_parquet(_meta)
+        meta_info = {"n_chunks": len(_m), "bytes": _emb.stat().st_size + _meta.stat().st_size}
+        print("Reusing existing RAG index on disk.")
+    else:
+        meta_info = rag.build_index(
+            reviews, tips, locations, out_dir=args.index_dir, landmark=pd.Timestamp(args.landmark)
+        )
     print(f"Built RAG index: {meta_info['n_chunks']} chunks, {meta_info['bytes'] / 1e6:.1f} MB.")
 
     embeddings, metadata = rag.load_index(args.index_dir)
 
     high_ids: list[str] = []
     if not risk_scores.empty:
-        high_ids = risk_scores[risk_scores["risk_tier"] == "High"]["business_id"].tolist()
+        hi = risk_scores[risk_scores["risk_tier"] == "High"]
+        if "risk_score" in hi.columns:
+            hi = hi.sort_values("risk_score", ascending=False)
+        # Cap live cost: cache answers for the N highest-risk locations (default 30).
+        import os as _os
+
+        cap = int(_os.environ.get("LRR_RAG_MAX_LOCATIONS", "30"))
+        high_ids = hi["business_id"].tolist()[:cap]
     if not high_ids:
         high_ids = metadata["business_id"].dropna().unique().tolist()[:5]
 

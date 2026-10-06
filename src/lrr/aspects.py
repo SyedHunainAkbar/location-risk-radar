@@ -268,8 +268,15 @@ def analyze_review(review_text: str, provider: str | None = None) -> dict:
         }
         all_items.extend(grounded)
     result["overall_score"] = aspect_score(all_items)
-    result["predicted_stars"] = predicted_stars(all_items)
     result["lead"] = run_lead_agent(review_text, provider=provider)
+    # Overall star prediction follows the TA reference design: the lead agent gives
+    # one polarity and intensity, and Python maps it to stars = 3 + 2*sign*k/3.
+    # The grounded aspect quotes supply the per-aspect scores and evidence.
+    lead = result["lead"]
+    result["predicted_stars"] = float(
+        np.clip(3.0 + 2.0 * polarity_sign(lead["polarity"]) * int(lead["intensity"]) / 3.0, 1, 5)
+    )
+    result["aspect_predicted_stars"] = predicted_stars(all_items)
     return result
 
 

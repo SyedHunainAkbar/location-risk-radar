@@ -29,12 +29,45 @@ DEFAULT_TEMPERATURE = 0.2
 DEFAULT_MAX_TOKENS = 1024
 
 
+def _default_model(provider: str) -> str | None:
+    """Model to use when a caller names a provider but no model.
+
+    Previously ``model=None`` was sent to the API, which rejected it, and the call
+    silently fell back to mock. We now take the first verified model configured for
+    that provider in the gateway routes, then the configured NVIDIA answer model.
+    """
+    if provider == "mock":
+        return None
+    try:
+        from lrr.gateway import routing as _routing
+
+        for chain in _routing.load_routes().values():
+            for entry in chain:
+                if entry.provider == provider and entry.model:
+                    return entry.model
+    except Exception:  # noqa: BLE001
+        pass
+    if provider == "nvidia":
+        from lrr import config as _config
+
+        return _config.RAG_ANSWER_MODEL
+    return None
+
+
+def _strict_live() -> bool:
+    """When LRR_STRICT_LIVE=1, never fall back to mock (pipeline runs must be live)."""
+    import os
+
+    return os.environ.get("LRR_STRICT_LIVE", "").strip() in {"1", "true", "yes"}
+
+
 def _adhoc_chain(
     provider: str, model: str | None, temperature: float, max_tokens: int
 ) -> list[RouteEntry]:
     """A single explicit provider followed by the mock terminal fallback."""
+    model = model or _default_model(provider)
     chain = [RouteEntry(provider, model, temperature, max_tokens, 60.0)]
-    if provider != "mock":
+    if provider != "mock" and not _strict_live():
         chain.append(RouteEntry("mock", None, temperature, max_tokens, 30.0))
     return chain
 
@@ -63,6 +96,8 @@ def chat(
         chain = _adhoc_chain(prov, model, temperature, max_tokens)
         gw = Gateway(routes={"_adhoc": chain}, sleep=_sleep or __import__("time").sleep)
         result = gw.chat(messages, role="_adhoc", completion_fn=_completion_fn)
+        if _strict_live() and getattr(result, "provider", prov) == "mock" and prov != "mock":
+            raise LLMError(f"Live call to {prov} fell back to mock (strict mode).")
         return result.text
 
     result = get_gateway().chat(

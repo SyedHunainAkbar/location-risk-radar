@@ -50,6 +50,8 @@ def render() -> None:
         "All-restaurant 24-month closure base rate (Tier 1).",
     )
 
+    _cohort_coverage(risk)
+
     # Map colored by tier.
     st.subheader("Where the risk is")
     _risk_map(view)
@@ -150,3 +152,43 @@ def _risk_map(view: pd.DataFrame) -> None:
         )
     except Exception:
         st.map(merged.rename(columns={"lat": "latitude", "lon": "longitude"}))
+
+
+def _cohort_coverage(risk: pd.DataFrame) -> None:
+    """Show that every one of the EDA's 2,054 cohort locations is accounted for.
+
+    Locations with no review, tip, or check-in activity in the 6 months before the
+    2018-01-01 landmark are outside the prediction window. Scoring them would leak
+    the outcome (a location that has already gone quiet is mostly already closed),
+    so they are excluded from training and shown here with their observed status.
+    """
+    loc = data.load("cohort_locations")
+    if loc is None:
+        return
+    scored = set(risk["business_id"])
+    loc = loc.copy()
+    loc["eligibility"] = [
+        "Scored (active at landmark)" if b in scored else "Inactive before landmark"
+        for b in loc["business_id"]
+    ]
+    n_all, n_scored = len(loc), int(loc["eligibility"].str.startswith("Scored").sum())
+    with st.expander(
+        f"EDA cohort coverage: all {n_all:,} locations of the 30 chains "
+        f"({n_scored:,} scored, {n_all - n_scored:,} inactive before the landmark)"
+    ):
+        st.caption(
+            "The survival model scores locations still active in the 6 months before "
+            "2018-01-01. The rest had already gone quiet, so scoring them would leak the "
+            "outcome; we list them with their observed status instead."
+        )
+        inactive = loc[loc["eligibility"] != "Scored (active at landmark)"].copy()
+        inactive["observed status"] = inactive["is_open"].map({1: "Open", 0: "Closed"})
+        summary = (
+            loc.groupby(["cluster", "eligibility"]).size().unstack(fill_value=0).reset_index()
+        )
+        st.dataframe(summary, hide_index=True, use_container_width=True)
+        st.dataframe(
+            inactive[["business_id", "chain", "cluster", "city", "state", "observed status"]],
+            hide_index=True,
+            use_container_width=True,
+        )
