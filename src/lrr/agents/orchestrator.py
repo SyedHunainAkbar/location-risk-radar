@@ -86,7 +86,10 @@ async def abuild_brief(
 
     # Agent 3 audits the assembled claims.
     claims = auditor_mod.build_claims(rendered, voc_result)
-    audit = auditor_mod.run_auditor(claims, voc_result, context_flags, auditor_fn)
+    facts = {k: v for k, v in factsheet.items() if isinstance(v, str)}
+    audit = auditor_mod.run_auditor(
+        claims, voc_result, dict(context_flags, factsheet=facts), auditor_fn
+    )
     supported = auditor_mod.supported_claim_ids(audit)
 
     # Drop unsupported driver claims from the brief.

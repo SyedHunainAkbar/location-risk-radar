@@ -44,7 +44,12 @@ def build_claims(rendered_drivers: list[dict], voc: dict) -> list[dict]:
 
 _SYSTEM = (
     "You are an independent risk auditor from a different team than the analysts. "
-    "For each claim, judge whether the provided evidence supports it. Reply JSON "
+    "There are two kinds of claims. DRIVER claims describe the survival model's "
+    "output: judge them ONLY against the fact sheet (Python-computed, authoritative). "
+    "A driver claim is supported if its numbers and named driver match the fact sheet "
+    "and it does not overstate them; customer quotes are not required for it. ISSUE "
+    "claims describe customer complaints: judge them against the grounded quotes. "
+    "Reply JSON "
     '{"claims": [{"claim_id": str, "verdict": "supported"|"unsupported"|'
     '"insufficient", "reason": str}], "alternatives": [{"explanation": str, '
     '"verdict": str}], "confidence_grade": "A"|"B"|"C"}. Consider the context '
@@ -64,8 +69,13 @@ def build_prompt(claims: list[dict], voc: dict, context_flags: dict) -> list[dic
         }
         for it in voc.get("items", [])
     ]
+    ctx = dict(context_flags or {})
+    factsheet = ctx.pop("factsheet", {})
+    context_flags = ctx
     user = (
-        "Claims to audit:\n"
+        "Fact sheet (authoritative model outputs for DRIVER claims):\n"
+        + json.dumps(factsheet, ensure_ascii=False)
+        + "\n\nClaims to audit:\n"
         + json.dumps(claims, ensure_ascii=False)
         + "\n\nGrounded evidence (quotes with citations):\n"
         + json.dumps(evidence, ensure_ascii=False)

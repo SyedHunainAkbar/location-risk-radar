@@ -67,6 +67,15 @@ def build_factsheet(
             key = str(dr["driver_key"])
             drivers.append({"driver_key": key, "contribution": float(dr["contribution"])})
             fs[f"driver_{key}"] = _fmt(dr["contribution"], places=3)
+    # No per-location SHAP table: fall back to the survival model's top-3 drivers
+    # (hazard-increasing covariates ranked in stage 05), so the Quant Analyst always
+    # explains the model's actual drivers rather than inventing its own.
+    if not drivers and not row.empty and "top_3_drivers" in risk_scores.columns:
+        raw = row.iloc[0].get("top_3_drivers")
+        keys = [k.strip() for k in str(raw).replace("|", ",").split(",") if k.strip()]
+        drivers = [{"driver_key": k, "contribution": 1.0} for k in keys[:3] if k != "nan"]
+        if drivers:
+            fs["model_top_drivers"] = ", ".join(d["driver_key"] for d in drivers)
     fs["top_drivers"] = drivers
     return fs
 

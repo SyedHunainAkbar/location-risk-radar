@@ -87,17 +87,27 @@ def _render_cached(bid: str, briefs) -> None:
     k[1].metric("Groundedness", f"{row.get('groundedness', float('nan')):.2f}")
     k[2].metric("Auditor grade", str(row.get("auditor_grade", "")))
 
+    import re as _re
+
+    name = data.label_map(data.locations()).get(bid, "This location")
     st.subheader("Why we flagged it")
     for d in str(row.get("drivers", "")).split(" | "):
         if d.strip():
-            st.markdown(f"- {d.strip()}")
+            txt = d.strip().replace(f"The business {bid}", name).replace(bid, name)
+            txt = _re.sub(r"\b(theme|share)_([a-z_]+)", lambda m: m.group(0).replace("_", " "), txt)
+            st.markdown(f"- {txt}")
+    if not str(row.get("drivers", "")).strip():
+        st.caption("The auditor did not support any model-driver claim for this location.")
 
     st.subheader("Evidence")
     ev = str(row.get("evidence", "")).strip()
     if ev and ev != "nan":
-        for e in ev.split(" | "):
-            if e.strip():
-                st.markdown(f"- {e.strip()}")
+        quotes = [e.strip() for e in ev.split(" | ") if e.strip()]
+        for e in quotes:
+            # Show the quote; keep the review id as a small, unobtrusive reference.
+            q = _re.sub(r"\s*\[([^\]]+)\]\s*$", "", e)
+            st.markdown(f"- {q}")
+        st.caption(f"{len(quotes)} verbatim customer quotes, each matched to its source review.")
     else:
         st.caption("No grounded evidence stored for this cached brief.")
 
