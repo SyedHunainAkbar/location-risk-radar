@@ -45,7 +45,7 @@ def render() -> None:
     options = [b for b in cached_ids]
     options += [b for b in scoped if b not in set(cached_ids)]
     if not options:
-        st.info("No locations match the current filters.")
+        st.info(data.empty_filter_message(data.locations()))
         return
     st.caption(
         f"\u2605 = {len(cached_ids)} high-risk locations with {len(cache) if cache is not None else 0} "
@@ -97,12 +97,49 @@ def _show_cached_answer(row: pd.Series) -> None:
     if not answer.strip() or answer.strip().lower().startswith("not enough evidence"):
         st.info("Not enough evidence in the reviews to answer that.")
         return
-    st.write(answer)
+    clean, cited = _number_citations(answer)
+    st.write(clean)
+    _show_sources(cited)
     full = str(row.get("answer") or "")
     if full and full != answer:
         with st.expander("Show removed sentences (unsupported by the judge)"):
             st.caption("These sentences were not supported by their cited snippet.")
-            st.write(full)
+            st.write(_number_citations(full)[0])
+
+
+_CITE = re.compile(r"\[([^\]]+)\]")
+
+
+def _number_citations(text: str):
+    """Replace raw review ids like [abc#0, def#1] with readable [1][2] markers."""
+    order: list[str] = []
+
+    def sub(m):
+        out = []
+        for rid in re.split(r",\s*", m.group(1)):
+            rid = rid.strip()
+            if rid not in order:
+                order.append(rid)
+            out.append(f"[{order.index(rid) + 1}]")
+        return "".join(out)
+
+    return _CITE.sub(sub, text), order
+
+
+def _show_sources(cited: list[str]) -> None:
+    if not cited:
+        return
+    src = data.rag_sources()
+    with st.expander(f"Sources ({len(cited)} reviews cited)"):
+        for i, rid in enumerate(cited, 1):
+            m = src[src["review_id"] == rid] if src is not None else None
+            if m is not None and len(m):
+                r = m.iloc[0]
+                kind = "Tip" if rid.startswith("tip_") else f"{int(r['stars'])}\u2605 review"
+                st.markdown(f"**[{i}]** {kind}, {r['date']}")
+                st.caption(str(r["text"]))
+            else:
+                st.markdown(f"**[{i}]** source snippet not available")
 
 
 def _answer_live(bid: str, question: str) -> None:
@@ -136,11 +173,12 @@ def _answer_live(bid: str, question: str) -> None:
     if not answer.strip() or answer.strip().lower().startswith("not enough evidence"):
         st.info("Not enough evidence in the reviews to answer that.")
         return
-    st.write(answer)
-    for rid in sorted(set(re.findall(r"\[([^\]]+)\]", answer))):
+    clean, cited = _number_citations(answer)
+    st.write(clean)
+    for i, rid in enumerate(cited, 1):
         m = snippets[snippets["review_id"] == rid]
         if len(m):
-            with st.expander(f"Source [{rid}]"):
+            with st.expander(f"Source [{i}]"):
                 st.write(m.iloc[0]["text"])
     if result.get("provider") and result["provider"] != "cached":
         tag = (

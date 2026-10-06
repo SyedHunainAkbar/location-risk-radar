@@ -200,10 +200,6 @@ def require(key: str, container=st) -> pd.DataFrame | None:
     return df
 
 
-def _short_id(bid: str) -> str:
-    return str(bid)[:6]
-
-
 @st.cache_data(show_spinner=False)
 def _enriched(risk_path: str, loc_path: str) -> pd.DataFrame | None:
     risk = _cached_read(risk_path)
@@ -223,12 +219,17 @@ def _enriched(risk_path: str, loc_path: str) -> pd.DataFrame | None:
     base["observed_status"] = pd.to_numeric(base.get("is_open"), errors="coerce").map(
         {1: "Open", 0: "Closed"}
     )
-    # Several branches of one chain can share a city, so a short id suffix keeps
-    # every label unique while staying readable.
+    # Several branches of one chain can share a city; number them (largest first by
+    # review count) so every label is unique without exposing raw Yelp ids.
+    base = base.sort_values("review_count", ascending=False)
+    n = base.groupby(["chain", "city", "state"])["business_id"].transform("size")
+    k = base.groupby(["chain", "city", "state"]).cumcount() + 1
     base["location_label"] = [
-        f"{r.chain} \u00b7 {r.city}, {r.state} ({r.cluster}) #{_short_id(r.business_id)}"
-        for r in base.itertuples()
+        f"{r.chain} \u00b7 {r.city}, {r.state} ({r.cluster})"
+        + (f" \u00b7 branch {kk} of {nn}" if nn > 1 else "")
+        for r, kk, nn in zip(base.itertuples(), k, n)
     ]
+    base = base.sort_index()
     return base
 
 
@@ -252,3 +253,30 @@ def label_map(df: pd.DataFrame | None) -> dict:
     if df is None or "location_label" not in df:
         return {}
     return dict(zip(df["business_id"], df["location_label"]))
+
+
+def rag_sources() -> pd.DataFrame | None:
+    """Snippet text for every review cited in the cached answers."""
+    return _cached_read(str(config.ARTIFACTS_DIR / "rag_sources.parquet"))
+
+
+def empty_filter_message(df: pd.DataFrame | None) -> str:
+    """Explain WHY a filter returns nothing, using the tiers present before the tier filter."""
+    ss = st.session_state
+    base = df
+    if base is None:
+        return "No locations match the current filters."
+    for col, key in (("cluster", "f_cluster"), ("chain", "f_chain"), ("state", "f_state")):
+        if ss.get(key) and col in base:
+            base = base[base[col].isin(ss[key])]
+    if base.empty:
+        return "No locations match the current cluster, chain and state filters."
+    counts = base["risk_tier"].value_counts()
+    mix = ", ".join(f"{t}: {int(counts[t])}" for t in
+                    ["High", "Elevated", "Watch", "Low", "Not scored"] if t in counts)
+    return (
+        f"No locations match the selected risk tier. The {len(base):,} locations in this "
+        f"cluster/chain/state selection are: {mix}. Tiers are cut on the pooled cohort, "
+        "and every High-tier location is Fast Food, consistent with the EDA finding that "
+        "Fast Food closes more often."
+    )

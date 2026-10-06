@@ -19,7 +19,7 @@ def render() -> None:
         return
     view = state.apply_filters(data.locations(scored_only=True))
     if view.empty:
-        st.info("No locations match the current filters.")
+        st.info(data.empty_filter_message(data.locations()))
         return
 
     # Picker searchable by chain and city.

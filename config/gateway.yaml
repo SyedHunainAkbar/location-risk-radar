@@ -12,19 +12,21 @@
 defaults:
   temperature: 0.2
   max_tokens: 1024
-  timeout: 60
+  timeout: 180
 
 roles:
   quant_analyst:
     temperature: 0.0
     chain:
       - nvidia:meta/llama-3.2-90b-vision-instruct
+      - nvidia:meta/llama-3.2-11b-vision-instruct
       - mock
 
   voice_of_customer:
     temperature: 0.3
     chain:
       - nvidia:meta/llama-3.2-90b-vision-instruct
+      - nvidia:meta/llama-3.2-11b-vision-instruct
       - mock
 
   risk_auditor:

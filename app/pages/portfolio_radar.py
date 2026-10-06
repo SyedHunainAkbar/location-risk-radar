@@ -118,40 +118,74 @@ def _watchlist_table(view: pd.DataFrame, score_col) -> pd.DataFrame:
 
 
 def _risk_map(view: pd.DataFrame) -> None:
+    """One dot per location, colored and sized by risk tier, zoomed to the filter."""
     if not {"lat", "lon"}.issubset(view.columns):
-        st.caption("Map needs cohort_locations with lat/lon. Run pipeline/01_ingest_cohort.py.")
+        st.caption("Map needs cohort_locations with lat/lon.")
         return
     merged = view.dropna(subset=["lat", "lon"]).copy()
     if merged.empty:
-        st.caption("No mapped locations in the current filter.")
+        st.info(data.empty_filter_message(data.locations()))
         return
     from app.components import theme
 
-    def _rgb(tier):
-        hexv = theme.tier_color(tier).lstrip("#")
-        return [int(hexv[i : i + 2], 16) for i in (0, 2, 4)] + [160]
+    order = {"High": 4, "Elevated": 3, "Watch": 2, "Low": 1, "Not scored": 0}
+    size = {"High": 9, "Elevated": 7, "Watch": 5, "Low": 4, "Not scored": 3}
 
-    merged["color"] = merged.get("risk_tier", "Low").map(_rgb)
+    def _rgb(tier):
+        if tier not in theme.TIER_COLORS:
+            return [150, 150, 150, 120]
+        hexv = theme.tier_color(tier).lstrip("#")
+        return [int(hexv[i : i + 2], 16) for i in (0, 2, 4)] + [230]
+
+    merged["color"] = merged["risk_tier"].map(_rgb)
+    merged["px"] = merged["risk_tier"].map(size).fillna(3)
+    merged["score_txt"] = merged.get("risk_score", pd.Series(index=merged.index)).map(
+        lambda v: "n/a" if pd.isna(v) else f"{v:.2f}"
+    )
+    # Draw High last so the riskiest dots sit on top.
+    merged = merged.sort_values("risk_tier", key=lambda s: s.map(order))
+    st.caption(
+        "Each dot is one location, colored by risk tier: "
+        "\U0001F534 High, \U0001F7E0 Elevated, \U0001F7E1 Watch, \U0001F535 Low, "
+        "\u26AA not scored (inactive before 2018). Larger dots are higher risk. "
+        "Hover for chain, city, tier and score; use the sidebar to zoom into a state."
+    )
     try:
         import pydeck as pdk
 
         layer = pdk.Layer(
             "ScatterplotLayer",
-            data=merged,
+            data=merged[["lon", "lat", "color", "px", "chain", "city", "state",
+                         "cluster", "risk_tier", "score_txt"]],
             get_position="[lon, lat]",
             get_fill_color="color",
-            get_radius=600,
+            get_radius="px",
+            radius_units="pixels",
+            stroked=True,
+            get_line_color=[255, 255, 255],
+            line_width_min_pixels=0.5,
             pickable=True,
         )
-        tooltip = {"text": "{chain}\n{city}, {state}\nTier: {risk_tier}"}
+        tooltip = {"text": "{chain} ({cluster})\n{city}, {state}\nTier: {risk_tier}\nScore: {score_txt}"}
+        lat0, lat1 = merged["lat"].quantile([0.02, 0.98])
+        lon0, lon1 = merged["lon"].quantile([0.02, 0.98])
+        span = max(lat1 - lat0, (lon1 - lon0) / 1.6, 0.05)
+        zoom = float(max(2.5, min(11, 8.5 - __import__("math").log2(span))))
         view_state = pdk.ViewState(
-            latitude=float(merged["lat"].mean()), longitude=float(merged["lon"].mean()), zoom=3.2
+            latitude=float((lat0 + lat1) / 2), longitude=float((lon0 + lon1) / 2), zoom=zoom
         )
         st.pydeck_chart(
             pdk.Deck(layers=[layer], initial_view_state=view_state, tooltip=tooltip, map_style=None)
         )
     except Exception:
         st.map(merged.rename(columns={"lat": "latitude", "lon": "longitude"}))
+    tiers = [t for t in ["High", "Elevated", "Watch", "Low", "Not scored"]
+             if t in set(merged["risk_tier"])]
+    by_state = merged.groupby(["state", "risk_tier"]).size().unstack(fill_value=0)[tiers]
+    if "High" in by_state:
+        by_state = by_state.sort_values("High", ascending=False)
+    st.caption("Locations by state and tier (current filter).")
+    st.dataframe(by_state, use_container_width=True)
 
 
 def _cohort_coverage(risk: pd.DataFrame) -> None:

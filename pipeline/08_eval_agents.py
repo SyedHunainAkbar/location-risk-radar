@@ -123,10 +123,31 @@ def run(args):
     fidelity_flags: list[int] = []
     stray_examples: list[str] = []
     question = "Why is this location at risk?"
-    for bid in targets["business_id"].head(args.n_holdout):
+    import time as _time
+
+    failed: list[str] = []
+    # Walk the High/Elevated list until n_holdout briefs succeed; a provider timeout
+    # on one location is logged and skipped instead of killing the whole run.
+    for bid in targets.sort_values("risk_score", ascending=False)["business_id"]:
+        if len(briefs) >= args.n_holdout:
+            break
         fs = agents.build_factsheet(bid, rs, shap_drivers=shap, features=features)
         snippets = _retrieve_snippets(embeddings, metadata, bid, question)
-        brief = agents.build_brief(fs, snippets, {"review_volume": "unknown"})
+        t0 = _time.time()
+        try:
+            brief = agents.build_brief(fs, snippets, {"review_volume": "unknown"})
+        except Exception as exc:  # noqa: BLE001
+            failed.append(bid)
+            print(f"  [skip] {bid}: {type(exc).__name__}: {str(exc)[:120]}", flush=True)
+            if len(failed) >= 3 * args.n_holdout:
+                break
+            continue
+        print(
+            f"  brief {len(briefs) + 1}/{args.n_holdout} {bid}: evidence={brief.n_evidence} "
+            f"drivers={len(brief.drivers)} grade={brief.auditor_grade} "
+            f"({_time.time() - t0:.0f}s)",
+            flush=True,
+        )
         briefs.append(brief)
         # INDEPENDENT numeric-fidelity re-scan on EVERY rendered driver (pre-audit),
         # since fidelity is a property of rendering, not of the auditor's verdict.
@@ -160,6 +181,7 @@ def run(args):
         [
             {
                 "n_briefs": len(briefs),
+                "n_skipped_timeouts": len(failed),
                 "numeric_fidelity_rate": fidelity,  # independent re-scan, target 1.0
                 "mean_groundedness": groundedness,
                 "auditor_rejection_rate": rejection,

@@ -44,7 +44,7 @@ def render() -> None:
         ids = briefs["business_id"].tolist() if briefs is not None else []
         labels = data.label_map(data.locations())
     if not ids:
-        st.info("No locations match the current filters.")
+        st.info(data.empty_filter_message(data.locations()))
         return
     bid = st.selectbox("Location", ids, format_func=lambda b: labels.get(b, b))
 
