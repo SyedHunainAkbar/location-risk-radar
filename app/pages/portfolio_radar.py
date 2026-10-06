@@ -148,7 +148,8 @@ def _risk_map(view: pd.DataFrame) -> None:
         "Each dot is one location, colored by risk tier: "
         "\U0001F534 High, \U0001F7E0 Elevated, \U0001F7E1 Watch, \U0001F535 Low, "
         "\u26AA not scored (inactive before 2018). Larger dots are higher risk. "
-        "Hover for chain, city, tier and score; use the sidebar to zoom into a state."
+        "Labels show each metro area with its location and High/Elevated counts. "
+        "Hover a dot for chain, city, tier and score; pick a State in the sidebar to zoom in."
     )
     # Plain Python types: Arrow-backed string columns do not serialize reliably to
     # the browser map layer, which left the dots invisible.
@@ -190,11 +191,41 @@ def _risk_map(view: pd.DataFrame) -> None:
                 hovertemplate="%{text}<extra></extra>",
             )
         )
+    # Yelp covers a handful of metro areas, so dots stack on top of each other. Label
+    # each metro (one per state in this data) with its main city and tier counts.
+    lab = merged.assign(state=merged["state"].astype(object), city=merged["city"].astype(object))
+    rows = []
+    # One state in view: label its largest cities instead of the metro.
+    single = lab["state"].nunique() == 1
+    groups = (
+        [(k, g) for k, g in lab.groupby("city")
+         if len(g) >= max(3, lab["city"].value_counts().iloc[min(7, lab["city"].nunique() - 1)])]
+        if single else list(lab.groupby("state"))
+    )
+    for key, g in groups:
+        stt = g["state"].iloc[0]
+        city = key if single else g["city"].value_counts().index[0]
+        nh = int((g["risk_tier"] == "High").sum())
+        ne = int((g["risk_tier"] == "Elevated").sum())
+        rows.append({
+            "lat": float(g["lat"].median()), "lon": float(g["lon"].median()),
+            "txt": f"<b>{city}, {stt}</b><br>{len(g)} locations \u00b7 {nh} High \u00b7 {ne} Elev.",
+        })
+    lab = pd.DataFrame(rows)
+    fig.add_trace(
+        go.Scattergeo(
+            lat=lab["lat"].tolist(), lon=lab["lon"].tolist(), mode="text",
+            text=lab["txt"].tolist(), textposition="top center",
+            textfont={"size": 11, "color": "#1A1A1A"},
+            hoverinfo="skip", showlegend=False,
+        )
+    )
     pad_lat = max(1.0, (m["lat"].max() - m["lat"].min()) * 0.08)
     pad_lon = max(1.0, (m["lon"].max() - m["lon"].min()) * 0.08)
     fig.update_geos(
         scope="north america",
         projection_type="mercator",
+        resolution=50,
         showland=True, landcolor="#F4F5F7",
         showlakes=True, lakecolor="#DDE7F0",
         showocean=True, oceancolor="#EAF1F7",
