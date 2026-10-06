@@ -19,7 +19,8 @@ def render() -> None:
     risk = data.require("risk_scores")
     if risk is None:
         return
-    view = state.apply_filters(risk)
+    allv = state.apply_filters(data.locations())
+    view = allv[allv["eligibility"].str.startswith("Scored")]
 
     score_col = next(
         (c for c in ("final_score", "tier2_score", "risk_score") if c in view.columns), None
@@ -29,9 +30,9 @@ def render() -> None:
     cols = st.columns(5)
     widgets.kpi_tile(
         cols[0],
-        "Locations monitored",
-        f"{len(view):,}",
-        "Tier 2 cohort locations in the current filter.",
+        "Locations in EDA cohort",
+        f"{len(allv):,}",
+        f"{len(view):,} scored, {len(allv) - len(view):,} inactive before the 2018 landmark.",
     )
     if "risk_tier" in view:
         widgets.kpi_tile(cols[1], "High risk", f"{int((view['risk_tier'] == 'High').sum())}")
@@ -54,11 +55,11 @@ def render() -> None:
 
     # Map colored by tier.
     st.subheader("Where the risk is")
-    _risk_map(view)
+    _risk_map(allv)
 
     # Sortable table + CSV.
     st.subheader("Watchlist")
-    table = _watchlist_table(view, score_col)
+    table = _watchlist_table(allv, score_col)
     st.dataframe(table, hide_index=True, use_container_width=True)
     st.download_button(
         "Download CSV",
@@ -89,39 +90,38 @@ def _watchlist_table(view: pd.DataFrame, score_col) -> pd.DataFrame:
     cols = [
         c
         for c in [
-            "business_id",
             "chain",
+            "city",
+            "state",
             "cluster",
             "risk_tier",
             score_col,
             "risk_percentile",
             "top_3_drivers",
             "surv_24m",
+            "observed_status",
+            "business_id",
         ]
         if c and c in view.columns
     ]
     out = view[cols].copy()
     if score_col:
-        out = out.sort_values(score_col, ascending=False)
+        out = out.sort_values(score_col, ascending=False, na_position="last")
     rename = {
-        "business_id": "location",
+        "business_id": "yelp id",
+        "observed_status": "observed status",
         score_col: "final_score",
         "top_3_drivers": "top 3 drivers",
         "surv_24m": "24m survival",
     }
-    return out.rename(columns=rename).head(300)
+    return out.rename(columns=rename)
 
 
 def _risk_map(view: pd.DataFrame) -> None:
-    loc = data.load("cohort_locations")
-    if loc is None or not {"lat", "lon"}.issubset(loc.columns):
+    if not {"lat", "lon"}.issubset(view.columns):
         st.caption("Map needs cohort_locations with lat/lon. Run pipeline/01_ingest_cohort.py.")
         return
-    merged = loc.merge(
-        view[[c for c in ["business_id", "risk_tier", "risk_percentile"] if c in view.columns]],
-        on="business_id",
-        how="inner",
-    )
+    merged = view.dropna(subset=["lat", "lon"]).copy()
     if merged.empty:
         st.caption("No mapped locations in the current filter.")
         return

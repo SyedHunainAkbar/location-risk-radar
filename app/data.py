@@ -198,3 +198,57 @@ def require(key: str, container=st) -> pd.DataFrame | None:
     if df is None:
         container.info(missing_message(key))
     return df
+
+
+def _short_id(bid: str) -> str:
+    return str(bid)[:6]
+
+
+@st.cache_data(show_spinner=False)
+def _enriched(risk_path: str, loc_path: str) -> pd.DataFrame | None:
+    risk = _cached_read(risk_path)
+    loc = _cached_read(loc_path)
+    if loc is None:
+        return risk
+    base = loc.copy()
+    if risk is not None:
+        keep = [c for c in risk.columns if c not in ("chain", "cluster")]
+        base = base.merge(risk[keep], on="business_id", how="left")
+    else:
+        base["risk_tier"] = None
+    base["eligibility"] = base["risk_tier"].notna().map(
+        {True: "Scored (active at landmark)", False: "Inactive before landmark"}
+    )
+    base["risk_tier"] = base["risk_tier"].fillna("Not scored")
+    base["observed_status"] = pd.to_numeric(base.get("is_open"), errors="coerce").map(
+        {1: "Open", 0: "Closed"}
+    )
+    # Several branches of one chain can share a city, so a short id suffix keeps
+    # every label unique while staying readable.
+    base["location_label"] = [
+        f"{r.chain} \u00b7 {r.city}, {r.state} ({r.cluster}) #{_short_id(r.business_id)}"
+        for r in base.itertuples()
+    ]
+    return base
+
+
+def locations(scored_only: bool = False) -> pd.DataFrame | None:
+    """All 2,054 cohort locations with city, state, cluster and risk joined.
+
+    Unscored rows (inactive in the 6 months before the landmark) carry
+    risk_tier == "Not scored". Use scored_only=True for model-based pages.
+    """
+    df = _enriched(
+        str(_resolve(ARTIFACTS["risk_scores"])), str(_resolve(ARTIFACTS["cohort_locations"]))
+    )
+    if df is None:
+        return None
+    if scored_only and "eligibility" in df:
+        df = df[df["eligibility"].str.startswith("Scored")]
+    return df
+
+
+def label_map(df: pd.DataFrame | None) -> dict:
+    if df is None or "location_label" not in df:
+        return {}
+    return dict(zip(df["business_id"], df["location_label"]))

@@ -32,17 +32,30 @@ def render() -> None:
     )
 
     cache = data.load("rag_cache")
-    risk = data.load("risk_scores")
+    locs = data.locations(scored_only=True)
+    labels = data.label_map(data.locations())
+    cached_ids = (
+        cache["business_id"].dropna().unique().tolist() if cache is not None else []
+    )
 
-    # Scope picker.
-    scope = state.apply_filters(risk) if risk is not None else None
-    options = scope["business_id"].tolist() if scope is not None and len(scope) else []
-    if cache is not None and not options:
-        options = sorted(cache["business_id"].dropna().unique().tolist())
+    # Precomputed answers exist for the highest-risk locations. List those first so
+    # Cached mode always has something to show, then the filtered scope.
+    scope = state.apply_filters(locs) if locs is not None else None
+    scoped = scope["business_id"].tolist() if scope is not None else []
+    options = [b for b in cached_ids]
+    options += [b for b in scoped if b not in set(cached_ids)]
     if not options:
-        st.info(data.missing_message("rag_cache"))
+        st.info("No locations match the current filters.")
         return
-    bid = st.selectbox("Location", options)
+    st.caption(
+        f"\u2605 = {len(cached_ids)} high-risk locations with {len(cache) if cache is not None else 0} "
+        "precomputed, judge-checked answers (Cached mode)."
+    )
+    bid = st.selectbox(
+        "Location",
+        options,
+        format_func=lambda b: ("\u2605 " if b in cached_ids else "") + labels.get(b, b),
+    )
 
     f = st.columns(2)
     f[0].slider(
@@ -61,10 +74,13 @@ def render() -> None:
         st.subheader("Precomputed questions")
         sub = cache[cache["business_id"] == bid]
         if sub.empty:
-            st.caption("No cached answers for this location.")
-        for _, r in sub.iterrows():
-            if st.button(r["question"], key=f"q_{r['question'][:20]}"):
-                _show_cached_answer(r)
+            st.info(
+                "Precomputed answers cover the starred high-risk locations. Pick a "
+                "starred location, or switch the sidebar Mode to Live to ask about this one."
+            )
+            return
+        choice = st.radio("Pick a question", sub["question"].tolist(), index=0)
+        _show_cached_answer(sub[sub["question"] == choice].iloc[0])
         return
 
     # Live mode: a sanitized free-text question.
@@ -96,7 +112,11 @@ def _answer_live(bid: str, question: str) -> None:
 
     snippets = _retrieve(bid, cleaned)
     if snippets is None or snippets.empty:
-        st.info("Not enough evidence in the reviews to answer that.")
+        st.info(
+            "Live retrieval needs the review index, which is built locally (91 MB) and is "
+            "not shipped to the hosted app. On the hosted app, use the starred locations "
+            "in Cached mode; run the app locally for free-text questions on any location."
+        )
         return
 
     # Build a delimited data block; instruct the model to treat it as data only.

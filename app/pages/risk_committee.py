@@ -22,22 +22,27 @@ def render() -> None:
         return
 
     # Picker defaults to the highest-risk location in the current filter.
-    scope = state.apply_filters(risk) if risk is not None else None
+    scope = state.apply_filters(data.locations(scored_only=True)) if risk is not None else None
+    if scope is not None and briefs is not None:
+        # Locations with a precomputed brief come first so Cached mode always works.
+        scope = scope.assign(_has=scope["business_id"].isin(set(briefs["business_id"])))
     if scope is not None and len(scope):
         score_col = next(
             (c for c in ("final_score", "tier2_score", "risk_score") if c in scope.columns), None
         )
         if score_col:
-            scope = scope.sort_values(score_col, ascending=False)
+            by = (["_has"] if "_has" in scope else []) + [score_col]
+            scope = scope.sort_values(by, ascending=False)
         ids = scope["business_id"].tolist()
+        has = set(briefs["business_id"]) if briefs is not None else set()
         labels = {
-            r["business_id"]: f"{r['business_id']} | {r.get('chain', '')} | "
-            f"{r.get('risk_tier', '')}"
-            for _, r in scope.iterrows()
+            b: ("\u2605 " if b in has else "") + f"{lab} | {t}"
+            for b, lab, t in zip(scope["business_id"], scope["location_label"], scope["risk_tier"])
         }
+        st.caption("\u2605 = precomputed committee brief available in Cached mode.")
     else:
         ids = briefs["business_id"].tolist() if briefs is not None else []
-        labels = {b: b for b in ids}
+        labels = data.label_map(data.locations())
     if not ids:
         st.info("No locations match the current filters.")
         return

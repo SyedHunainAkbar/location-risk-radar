@@ -17,20 +17,22 @@ def render() -> None:
     risk = data.require("risk_scores")
     if risk is None:
         return
-    view = state.apply_filters(risk)
+    view = state.apply_filters(data.locations(scored_only=True))
     if view.empty:
         st.info("No locations match the current filters.")
         return
 
     # Picker searchable by chain and city.
-    labels = {
-        r["business_id"]: f"{r['business_id']} | {r.get('chain', '')} | {r.get('cluster', '')}"
-        for _, r in view.iterrows()
-    }
+    labels = data.label_map(view)
     bid = st.selectbox(
         "Location", view["business_id"].tolist(), format_func=lambda b: labels.get(b, b)
     )
     row = view[view["business_id"] == bid].iloc[0]
+    st.caption(
+        f"{row['chain']} ({row['cluster']}) in {row['city']}, {row['state']}. "
+        f"Yelp stars {row.get('stars', '')}, {int(row.get('review_count', 0) or 0):,} reviews. "
+        f"Yelp id {bid}."
+    )
 
     # Risk header.
     st.markdown(widgets.risk_badge(row.get("risk_tier", "Unknown")), unsafe_allow_html=True)

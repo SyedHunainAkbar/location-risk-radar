@@ -163,6 +163,9 @@ class Gateway:
             if e.provider == "mock"
             or (e.provider in healthy and providers.provider_available(e.provider))
         ]
+        # Strict live mode (LRR_STRICT_LIVE=1): never answer from mock, fail loudly.
+        if _strict_live() and not self.cached_only:
+            return [e for e in resolved if e.provider != "mock"]
         # Always guarantee a terminal mock so a keyless run answers.
         if not any(e.provider == "mock" for e in resolved):
             resolved.append(routing.RouteEntry("mock", None, 0.0, 256, 30))
@@ -262,6 +265,10 @@ class Gateway:
         key_entry = chain[0]
         key = cache_mod.cache_key(key_entry.provider, key_entry.model, messages, params)
         hit = cache_mod.get(key)
+        # A cached mock answer is never reused for a live request: it would silently
+        # pass offline placeholder output off as a model result.
+        if hit is not None and hit.get("provider") == "mock" and not self.cached_only:
+            hit = None
         if hit is not None:
             self.ledger.append(
                 LedgerRow(
@@ -336,15 +343,16 @@ class Gateway:
                     fallback_used=fallback_used,
                 )
             )
-            cache_mod.put(
-                key,
-                {
-                    "text": text,
-                    "provider": entry.provider,
-                    "model": entry.model,
-                    "fallback_used": fallback_used,
-                },
-            )
+            if entry.provider != "mock":
+                cache_mod.put(
+                  key,
+                  {
+                      "text": text,
+                      "provider": entry.provider,
+                      "model": entry.model,
+                      "fallback_used": fallback_used,
+                  },
+                )
             return GatewayResult(
                 text=text,
                 provider=entry.provider,
@@ -356,6 +364,8 @@ class Gateway:
                 parsed=parsed,
             )
 
+        if not chain:
+            raise GatewayError(f"strict live mode: no live provider available for {role!r}")
         raise GatewayError(f"all providers failed for role {role!r}: {last_exc}")
 
     async def achat(
@@ -415,6 +425,12 @@ def _json_slice(text: str) -> str:
 # --------------------------------------------------------------------------- #
 
 _GATEWAY: Gateway | None = None
+
+
+def _strict_live() -> bool:
+    import os
+
+    return os.environ.get("LRR_STRICT_LIVE", "").strip() in ("1", "true", "True")
 
 
 def get_gateway(**kwargs) -> Gateway:
