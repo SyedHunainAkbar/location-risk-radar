@@ -140,6 +140,40 @@ def test_design_matrix_full_includes_topic_cols() -> None:
     assert "topic_0" in X.columns
 
 
+def _cleanable_features() -> pd.DataFrame:
+    """A larger toy frame with a NaN, a constant column, and a collinear pair."""
+    n = 40
+    rng = np.random.default_rng(0)
+    base = rng.normal(size=n)
+    df = pd.DataFrame(
+        {
+            "business_id": [f"b{i}" for i in range(n)],
+            "chain": ["A", "B"] * (n // 2),
+            "cluster": ["Fast Food", "Non-Fast Food"] * (n // 2),
+            "stars_all": base,
+            "stars_12m": base + rng.normal(scale=0.01, size=n),  # ~collinear with stars_all
+            "stars_trend": rng.normal(size=n),
+            "topic_0": rng.normal(size=n),
+            "topic_1": np.zeros(n),  # zero variance
+        }
+    )
+    df.loc[0, "stars_trend"] = np.nan  # exercise impute + indicator
+    return df
+
+
+def test_clean_design_matrix_has_no_nan_inf_or_zero_variance() -> None:
+    """The cleaned Cox design matrix must be finite with no constant columns."""
+    X = S.design_matrix(_cleanable_features(), "full", pooled=True, clean=True)
+    arr = X.to_numpy(dtype=float)
+    assert not np.isnan(arr).any(), "cleaned design matrix contains NaN"
+    assert not np.isinf(arr).any(), "cleaned design matrix contains inf"
+    stds = X.std(ddof=0)
+    assert (stds > 0).all(), f"zero-variance columns remain: {stds[stds == 0].index.tolist()}"
+    # The constant topic_1 must have been dropped, and a missingness indicator added.
+    assert "topic_1" not in X.columns
+    assert "stars_trend_missing" in X.columns
+
+
 # --------------------------------------------------------------------------- #
 # Risk tiering, percentile, drivers
 # --------------------------------------------------------------------------- #

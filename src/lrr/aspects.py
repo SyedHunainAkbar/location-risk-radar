@@ -245,10 +245,17 @@ def analyze_review(review_text: str, provider: str | None = None) -> dict:
     Returns a dict with per-aspect grounded items and scores, the overall
     predicted stars, the lead summary, and the dropped-quote count.
     """
-    result: dict = {"aspects": {}, "dropped_quotes": 0}
+    result: dict = {"aspects": {}, "dropped_quotes": 0, "schema_failures": 0}
     all_items: list[dict] = []
     for aspect in config.ASPECTS:
-        items = run_aspect_agent(aspect, review_text, provider=provider)
+        try:
+            items = run_aspect_agent(aspect, review_text, provider=provider)
+        except AspectSchemaError:
+            # A single aspect that will not return valid JSON after retries must not
+            # abort the whole corpus run. We treat it as no groundable quotes for
+            # this review and count it, preserving the grounding discipline.
+            items = []
+            result["schema_failures"] += 1
         grounded = []
         for it in items:
             if ground_quote(it["quote"], review_text):

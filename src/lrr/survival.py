@@ -47,6 +47,10 @@ def _topic_cols(features: pd.DataFrame) -> list[str]:
     return [c for c in features.columns if c.startswith("topic_")]
 
 
+def _theme_cols(features: pd.DataFrame) -> list[str]:
+    return [c for c in features.columns if c.startswith("theme_")]
+
+
 #: Nested feature sets. ``full`` = engagement + text + topic shares + stars.
 FEATURE_SETS: dict[str, list[str]] = {
     "stars_only": list(_STARS),
@@ -63,22 +67,260 @@ def feature_columns(features: pd.DataFrame, feature_set: str) -> list[str]:
     """
     cols = list(FEATURE_SETS[feature_set])
     if feature_set == "full":
-        cols = cols + _topic_cols(features)
+        # Prefer collapsed complaint-theme shares when present; otherwise fall back
+        # to the raw per-topic shares.
+        theme = _theme_cols(features)
+        cols = cols + (theme if theme else _topic_cols(features))
     return [c for c in cols if c in features.columns]
 
 
-def design_matrix(features: pd.DataFrame, feature_set: str, pooled: bool = False) -> pd.DataFrame:
-    """Select the feature columns, add a pooled cluster indicator when requested.
+#: Threshold above which a pairwise absolute correlation is treated as redundant.
+COLLINEAR_THRESHOLD: float = 0.95
 
-    Missing numeric values are median-imputed per column so the matrix is dense.
+#: Records the most recent design-matrix cleaning decisions (for the model card /
+#: feature_decisions.md). Each call to :func:`design_matrix` with ``record=True``
+#: refreshes this. A list of (feature, action, reason) tuples.
+DESIGN_DECISIONS: list[tuple[str, str, str]] = []
+
+
+def _median_impute_with_indicator(
+    X: pd.DataFrame,
+) -> tuple[pd.DataFrame, list[tuple[str, str, str]]]:
+    """Median-impute each column; add a 0/1 missingness indicator where any gap exists.
+
+    Returns the imputed frame and the list of (feature, action, reason) decisions.
+    """
+    decisions: list[tuple[str, str, str]] = []
+    out = X.copy()
+    medians = out.median(numeric_only=True)
+    for col in list(out.columns):
+        n_missing = int(out[col].isna().sum())
+        if n_missing:
+            out[f"{col}_missing"] = out[col].isna().astype(int)
+            out[col] = out[col].fillna(medians.get(col, 0.0))
+            decisions.append(
+                (
+                    col,
+                    "impute+indicator",
+                    f"{n_missing} missing filled with train median, added {col}_missing",
+                )
+            )
+    out = out.fillna(0.0)
+    return out, decisions
+
+
+def _drop_zero_variance(X: pd.DataFrame) -> tuple[pd.DataFrame, list[tuple[str, str, str]]]:
+    """Drop columns with zero variance (constant), which make the Hessian singular."""
+    decisions: list[tuple[str, str, str]] = []
+    std = X.std(ddof=0)
+    drop = [c for c in X.columns if float(std.get(c, 0.0)) == 0.0]
+    for c in drop:
+        decisions.append(
+            (c, "drop", "zero variance (constant column); singular in the Cox Hessian")
+        )
+    return X.drop(columns=drop), decisions
+
+
+def _drop_collinear(
+    X: pd.DataFrame, keep_priority: Sequence[str]
+) -> tuple[pd.DataFrame, list[tuple[str, str, str]]]:
+    """Drop one member of each pairwise |r| > threshold, keeping the more interpretable.
+
+    ``keep_priority`` lists columns in order of interpretability; when two columns
+    are highly correlated we drop the one that appears later in the priority order.
+    """
+    decisions: list[tuple[str, str, str]] = []
+    cols = list(X.columns)
+    if len(cols) < 2:
+        return X, decisions
+    corr = X.corr().abs()
+    rank = {c: i for i, c in enumerate(keep_priority)}
+
+    def interp_rank(c: str) -> int:
+        return rank.get(c, len(keep_priority) + cols.index(c))
+
+    dropped: set[str] = set()
+    for i in range(len(cols)):
+        for j in range(i + 1, len(cols)):
+            a, b = cols[i], cols[j]
+            if a in dropped or b in dropped:
+                continue
+            r = corr.iloc[i, j]
+            if pd.notna(r) and r > COLLINEAR_THRESHOLD:
+                # Keep the more interpretable (lower rank); drop the other.
+                drop_c = b if interp_rank(a) <= interp_rank(b) else a
+                keep_c = a if drop_c == b else b
+                dropped.add(drop_c)
+                reason = (
+                    f"|r|={float(r):.3f} with {keep_c} (> {COLLINEAR_THRESHOLD}); "
+                    f"kept more interpretable {keep_c}"
+                )
+                decisions.append((drop_c, "drop", reason))
+    return X.drop(columns=list(dropped)), decisions
+
+
+#: Descriptive phrase for each VOC complaint theme, used to embed and match topics.
+THEME_PHRASES: dict[str, str] = {
+    "service_speed": "slow service, long wait times, slow to be served",
+    "staff_attitude": "rude, unfriendly, or inattentive staff and servers",
+    "order_accuracy": "wrong, missing, or incorrect order",
+    "food_quality": "cold, bland, or poor quality food",
+    "cleanliness": "dirty, unclean, poor hygiene, messy tables and restrooms",
+    "value": "price, value for money, too expensive",
+    "management_response": "management and how complaints are handled",
+    "drive_thru_takeout": "drive-thru, takeout, delivery, and pickup",
+    "other": "general comments not about a specific complaint theme",
+}
+
+
+def collapse_topics_to_themes(
+    features: pd.DataFrame,
+    topic_labels: pd.DataFrame,
+    encode_fn=None,
+    map_out_path=None,
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Collapse raw ``topic_*`` share columns into ~9 complaint-theme shares.
+
+    Each BERTopic topic is matched to its nearest complaint theme by cosine
+    similarity between the MiniLM embedding of the topic's ``top_words`` and the
+    embedding of each theme phrase (:data:`THEME_PHRASES`). Per-business topic
+    shares are then summed within each assigned theme to produce ``theme_<name>``
+    columns, replacing the raw ``topic_*`` columns.
+
+    Returns ``(features_with_theme_cols, mapping_df)`` where ``mapping_df`` has
+    columns ``topic, top_words, theme, similarity``. ``encode_fn`` can be injected
+    in tests; by default we use the shared RAG MiniLM encoder.
+    """
+    topic_cols = _topic_cols(features)
+    if not topic_cols:
+        return features, pd.DataFrame(columns=["topic", "top_words", "theme", "similarity"])
+
+    themes = list(THEME_PHRASES.keys())
+    theme_texts = [THEME_PHRASES[t] for t in themes]
+
+    # Topic -> representative text (top_words), from the per-cluster label tables.
+    labels = topic_labels.drop_duplicates(subset="topic").set_index("topic")
+    topic_ids = [int(c.split("_")[1]) for c in topic_cols]
+    topic_texts = [str(labels["top_words"].get(tid, "")) for tid in topic_ids]
+
+    if encode_fn is None:
+        from lrr import rag
+
+        encode_fn = rag._encode
+
+    emb_topics = np.asarray(encode_fn(topic_texts), dtype=float)
+    emb_themes = np.asarray(encode_fn(theme_texts), dtype=float)
+
+    def _norm(m):
+        return m / np.clip(np.linalg.norm(m, axis=-1, keepdims=True), 1e-9, None)
+
+    sim = _norm(emb_topics) @ _norm(emb_themes).T  # (n_topics, n_themes)
+    best = sim.argmax(axis=1)
+
+    rows = []
+    theme_of_col: dict[str, str] = {}
+    for col, tid, bi, texts in zip(topic_cols, topic_ids, best, topic_texts):
+        theme = themes[int(bi)]
+        theme_of_col[col] = theme
+        rows.append(
+            {
+                "topic": tid,
+                "top_words": texts,
+                "theme": theme,
+                "similarity": round(float(sim[topic_ids.index(tid), int(bi)]), 4),
+            }
+        )
+    mapping = pd.DataFrame(rows).sort_values("topic").reset_index(drop=True)
+
+    out = features.copy()
+    for theme in themes:
+        cols = [c for c in topic_cols if theme_of_col[c] == theme]
+        out[f"theme_{theme}"] = out[cols].sum(axis=1) if cols else 0.0
+    out = out.drop(columns=topic_cols)
+
+    if map_out_path is not None:
+        from pathlib import Path
+
+        Path(map_out_path).parent.mkdir(parents=True, exist_ok=True)
+        mapping.to_csv(map_out_path, index=False)
+
+    return out, mapping
+
+
+#: Interpretability priority for collinear-pair resolution (earlier = keep).
+_INTERP_PRIORITY: list[str] = (
+    _STARS
+    + ["review_vol_12m", "review_vol_6m", "review_vol_3m"]
+    + ["review_velocity_slope", "review_velocity_ratio"]
+    + [
+        "checkin_vol",
+        "checkin_slope",
+        "tip_vol",
+        "tip_coverage",
+        "review_length",
+        "location_age_days",
+        "chain_prior",
+    ]
+    + _TEXT
+    + ["cluster_ff"]
+)
+
+
+def design_matrix(
+    features: pd.DataFrame,
+    feature_set: str,
+    pooled: bool = False,
+    *,
+    clean: bool = False,
+    keep_cols: Sequence[str] | None = None,
+    standardize: bool = False,
+    record: bool = False,
+) -> pd.DataFrame:
+    """Build the Cox design matrix.
+
+    By default (``clean=False``) this is the simple dense matrix: selected columns,
+    numeric-coerced, median-imputed. Set ``clean=True`` for the robust production
+    path that median-imputes with a missingness indicator, drops zero-variance
+    columns, drops one of each highly collinear pair (keeping the more
+    interpretable), and optionally standardizes continuous columns, so the
+    Newton-Raphson Cox fit stays well conditioned.
+
+    For cross-validation, fit the column schema on the training fold and pass the
+    resulting column list via ``keep_cols`` so test folds share the exact columns.
+    Set ``record=True`` to refresh :data:`DESIGN_DECISIONS` for the model card.
     """
     cols = feature_columns(features, feature_set)
     X = features[cols].copy()
     X = X.apply(pd.to_numeric, errors="coerce")
-    X = X.fillna(X.median(numeric_only=True))
-    X = X.fillna(0.0)
+    X = X.replace([np.inf, -np.inf], np.nan)
     if pooled and "cluster" in features.columns:
         X["cluster_ff"] = (features["cluster"] == "Fast Food").astype(int)
+
+    if not clean:
+        X = X.fillna(X.median(numeric_only=True)).fillna(0.0)
+        return X if keep_cols is None else X.reindex(columns=list(keep_cols), fill_value=0.0)
+
+    decisions: list[tuple[str, str, str]] = []
+    X, d1 = _median_impute_with_indicator(X)
+    decisions += d1
+    X, d2 = _drop_zero_variance(X)
+    decisions += d2
+    X, d3 = _drop_collinear(X, _INTERP_PRIORITY)
+    decisions += d3
+
+    if keep_cols is not None:
+        # Enforce the training-fold schema on this (test) fold.
+        X = X.reindex(columns=list(keep_cols), fill_value=0.0)
+
+    if standardize:
+        cont = [c for c in X.columns if not c.endswith("_missing") and c != "cluster_ff"]
+        mu = X[cont].mean()
+        sd = X[cont].std(ddof=0).replace(0, 1.0)
+        X[cont] = (X[cont] - mu) / sd
+
+    if record:
+        DESIGN_DECISIONS.clear()
+        DESIGN_DECISIONS.extend(decisions)
     return X
 
 
@@ -87,40 +329,132 @@ def design_matrix(features: pd.DataFrame, feature_set: str, pooled: bool = False
 # --------------------------------------------------------------------------- #
 
 
+#: Penalizer grid tuned by cross-validated C index (ridge; l1_ratio=0).
+COX_PENALIZER_GRID: tuple[float, ...] = (0.01, 0.05, 0.1, 0.5)
+
+
 def fit_cox(
     X: pd.DataFrame,
     duration: pd.Series,
     event: pd.Series,
     penalizer: float = 0.1,
+    l1_ratio: float = 0.0,
 ):
-    """Fit a lifelines CoxPHFitter. Returns the fitted model."""
+    """Fit a ridge-penalized lifelines CoxPHFitter, robust to convergence trouble.
+
+    Uses ``l1_ratio=0`` (pure ridge) for a stable Hessian. If Newton-Raphson
+    produces a NaN step we retry with a smaller ``step_size`` before giving up.
+    """
     from lifelines import CoxPHFitter
+    from lifelines.exceptions import ConvergenceError
 
     df = X.copy()
     df["duration"] = np.asarray(duration, dtype=float)
     df["event"] = np.asarray(event, dtype=int)
-    model = CoxPHFitter(penalizer=penalizer)
-    model.fit(df, duration_col="duration", event_col="event")
-    return model
+    model = CoxPHFitter(penalizer=penalizer, l1_ratio=l1_ratio)
+    try:
+        model.fit(df, duration_col="duration", event_col="event")
+        return model
+    except ConvergenceError:
+        # Smaller, damped Newton steps recover from a NaN delta on stiff matrices.
+        model = CoxPHFitter(penalizer=penalizer, l1_ratio=l1_ratio)
+        model.fit(df, duration_col="duration", event_col="event", fit_options={"step_size": 0.5})
+        return model
 
 
-def tune_cox_penalizer(X, duration, event, penalizers: Sequence[float] = config.COX_PENALIZERS):
-    """Pick the penalizer with the best in-sample partial log-likelihood/C.
+def tune_cox_penalizer(X, duration, event, penalizers: Sequence[float] = COX_PENALIZER_GRID):
+    """Pick the penalizer with the best cross-validated C index (ridge).
 
-    Returns (best_model, best_penalizer). Simple selection by concordance; the
-    stage-05 driver cross-validates across folds.
+    We hold out a simple 5-fold split on rows (grouping is handled upstream by the
+    stage driver) and score each penalizer by mean out-of-fold concordance, so the
+    choice is not an in-sample optimism artifact. Returns (best_model, best_pen).
     """
-    from lifelines import CoxPHFitter  # noqa: F401 (ensures lifelines present)
+    from sklearn.model_selection import KFold
 
-    best = None
+    duration = np.asarray(duration, dtype=float)
+    event = np.asarray(event, dtype=int)
+    Xr = X.reset_index(drop=True)
+    n_splits = min(5, max(2, len(Xr) // 50)) if len(Xr) >= 100 else 2
+    kf = KFold(n_splits=n_splits, shuffle=True, random_state=config.SEED)
+
     best_pen = penalizers[0]
     best_c = -np.inf
     for pen in penalizers:
-        model = fit_cox(X, duration, event, penalizer=pen)
-        c = float(model.concordance_index_)
-        if c > best_c:
-            best, best_pen, best_c = model, pen, c
+        cs: list[float] = []
+        for tr, te in kf.split(Xr):
+            try:
+                m = fit_cox(Xr.iloc[tr], duration[tr], event[tr], penalizer=pen)
+                risk = m.predict_partial_hazard(Xr.iloc[te]).to_numpy().ravel()
+                from lrr import evaluation
+
+                cs.append(evaluation.harrell_c(duration[te], event[te], risk))
+            except Exception:
+                continue
+        mean_c = float(np.nanmean(cs)) if cs else -np.inf
+        if mean_c > best_c:
+            best_c, best_pen = mean_c, pen
+
+    # Refit the chosen penalizer on all rows for the returned model.
+    best = fit_cox(X, duration, event, penalizer=best_pen)
     return best, best_pen
+
+
+def select_penalizer_subsampled(
+    X: pd.DataFrame,
+    duration,
+    event,
+    penalizers: Sequence[float] = COX_PENALIZER_GRID,
+    subsample: int = 10_000,
+    inner_folds: int = 3,
+    seed: int = config.SEED,
+) -> float:
+    """Pick a Cox penalizer with ONE inner CV on a stratified subsample.
+
+    Designed for large-N tiers (for example the ~46k Tier 1 corpus) where a full
+    nested CV is far too expensive for negligible benefit. We take a stratified
+    (by event) subsample of at most ``subsample`` rows, run a single ``inner_folds``
+    KFold, and return the penalizer with the best mean out-of-fold C index. The
+    caller refits on the full training fold with the chosen penalizer.
+    """
+    from sklearn.model_selection import KFold
+
+    from lrr import evaluation
+
+    Xr = X.reset_index(drop=True)
+    dur = np.asarray(duration, dtype=float)
+    evt = np.asarray(event, dtype=int)
+    n = len(Xr)
+    if n > subsample:
+        rng = np.random.default_rng(seed)
+        pos = np.where(evt == 1)[0]
+        neg = np.where(evt == 0)[0]
+        frac = subsample / n
+        k_pos = max(1, int(round(len(pos) * frac)))
+        k_neg = subsample - k_pos
+        sel = np.concatenate(
+            [
+                rng.choice(pos, size=min(k_pos, len(pos)), replace=False),
+                rng.choice(neg, size=min(k_neg, len(neg)), replace=False),
+            ]
+        )
+        rng.shuffle(sel)
+        Xr, dur, evt = Xr.iloc[sel].reset_index(drop=True), dur[sel], evt[sel]
+
+    kf = KFold(n_splits=inner_folds, shuffle=True, random_state=seed)
+    best_pen, best_c = penalizers[0], -np.inf
+    for pen in penalizers:
+        cs: list[float] = []
+        for tr, te in kf.split(Xr):
+            try:
+                m = fit_cox(Xr.iloc[tr], dur[tr], evt[tr], penalizer=pen)
+                risk = m.predict_partial_hazard(Xr.iloc[te]).to_numpy().ravel()
+                cs.append(evaluation.harrell_c(dur[te], evt[te], risk))
+            except Exception:
+                continue
+        mean_c = float(np.nanmean(cs)) if cs else -np.inf
+        if mean_c > best_c:
+            best_c, best_pen = mean_c, pen
+    return best_pen
 
 
 def fit_rsf(X: pd.DataFrame, duration, event, seed: int = config.SEED):
@@ -277,9 +611,13 @@ def fit_tier1(
     features: pd.DataFrame,
     duration,
     event,
-    penalizer: float = 0.1,
+    penalizer: float = 0.01,
 ):
-    """Fit the Tier 1 corpus Cox model. Returns the fitted lifelines model."""
+    """Fit the Tier 1 corpus Cox model with a fixed ridge penalizer.
+
+    At the ~46k-restaurant corpus scale the penalizer barely moves the fit, so we
+    use a fixed small value (0.01) rather than an expensive inner CV tune.
+    """
     X = tier1_design_matrix(features)
     return fit_cox(X, duration, event, penalizer=penalizer)
 

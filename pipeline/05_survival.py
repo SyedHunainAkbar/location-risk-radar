@@ -53,6 +53,30 @@ def _feature_path(data_dir: Path, landmark: str) -> Path:
     return Path(data_dir) / config.features_file(pd.Timestamp(landmark))
 
 
+def _collapse_to_themes(feats_raw: pd.DataFrame, args: argparse.Namespace) -> pd.DataFrame:
+    """Collapse raw topic_* columns into complaint-theme shares; write the map."""
+    art = Path(args.artifacts_dir)
+    labels = []
+    for cluster_file in (config.topics_file("Fast Food"), config.topics_file("Non-Fast Food")):
+        p = art / cluster_file
+        if p.exists():
+            labels.append(io.read_parquet(p))
+    if not labels:
+        print("[warn] no topic label tables found; keeping raw topic columns.")
+        return feats_raw
+    topic_labels = pd.concat(labels, ignore_index=True)
+    map_path = None if args.dry_run else (art / "topic_theme_map.csv")
+    feats, mapping = survival.collapse_topics_to_themes(
+        feats_raw, topic_labels, map_out_path=map_path
+    )
+    n_topics = len([c for c in feats_raw.columns if c.startswith("topic_")])
+    n_themes = len([c for c in feats.columns if c.startswith("theme_")])
+    print(f"Collapsed {n_topics} topic columns into {n_themes} complaint-theme shares.")
+    if not args.dry_run:
+        print(f"Wrote topic_theme_map.csv ({len(mapping)} topics mapped).")
+    return feats
+
+
 def cross_validated_metrics(features_df: pd.DataFrame, feature_set: str, pooled: bool) -> dict:
     """GroupKFold(chain) Cox metrics for one feature set. Returns mean metrics."""
     groups = features_df["chain"].astype(str)
@@ -65,8 +89,12 @@ def cross_validated_metrics(features_df: pd.DataFrame, feature_set: str, pooled:
     for train_idx, test_idx in gkf.split(features_df, groups=groups):
         train = features_df.iloc[train_idx]
         test = features_df.iloc[test_idx]
-        X_train = survival.design_matrix(train, feature_set, pooled)
-        X_test = survival.design_matrix(test, feature_set, pooled)
+        # Fit the cleaned column schema on the training fold, then enforce the same
+        # columns on the test fold so predict_partial_hazard sees a matching matrix.
+        X_train = survival.design_matrix(train, feature_set, pooled, clean=True)
+        X_test = survival.design_matrix(
+            test, feature_set, pooled, clean=True, keep_cols=list(X_train.columns)
+        )
         try:
             model, _ = survival.tune_cox_penalizer(X_train, train["duration_days"], train["event"])
             risk = model.predict_partial_hazard(X_test).to_numpy().ravel()
@@ -88,8 +116,14 @@ def run(args: argparse.Namespace) -> dict:
     primary_path = _feature_path(args.data_dir, args.landmark)
     if not primary_path.exists():
         raise FileNotFoundError(f"Feature matrix not found: {primary_path}. Run stage 04 first.")
-    feats = io.read_parquet(primary_path)
-    print(f"Loaded {len(feats)} feature rows from {primary_path}.")
+    feats_raw = io.read_parquet(primary_path)
+    print(f"Loaded {len(feats_raw)} feature rows from {primary_path}.")
+
+    # Collapse the ~68 raw topic_* share columns into ~9 complaint-theme shares by
+    # matching each BERTopic topic to its nearest zero-shot theme. The theme shares
+    # replace the raw topic columns in the production (full) model; we also keep the
+    # raw-topic version to report both C-indexes in the ablation.
+    feats = _collapse_to_themes(feats_raw, args)
 
     # Ablation + benchmark across feature sets, per cluster and pooled.
     metric_rows: list[dict] = []
@@ -107,6 +141,22 @@ def run(args: argparse.Namespace) -> dict:
             cm = cross_validated_metrics(sub, fs, pooled=False)
             metric_rows.append({"scope": cluster, "feature_set": fs, "model": "CoxPH", **cm})
 
+    # Report the "full" model both ways: raw topic columns vs collapsed themes.
+    full_raw_c = cross_validated_metrics(feats_raw, "full", pooled=True)["harrell_c"]
+    full_theme_c = metrics_by_set_pooled["full"]["harrell_c"]
+    metric_rows.append(
+        {
+            "scope": "pooled",
+            "feature_set": "full_raw_topics",
+            "model": "CoxPH",
+            "harrell_c": full_raw_c,
+        }
+    )
+    print(
+        f"\nFULL model C-index: raw topic_* columns = {full_raw_c:.4f}  |  "
+        f"collapsed complaint themes = {full_theme_c:.4f}"
+    )
+
     metrics = pd.DataFrame(metric_rows)
     ablation = evaluation.ablation_table(metrics_by_set_pooled)
     print("\nABLATION (pooled, Cox, GroupKFold by chain)")
@@ -114,7 +164,7 @@ def run(args: argparse.Namespace) -> dict:
     print(ablation.round(4).to_string(index=False))
 
     # Fit the production model (full set, pooled) on all data for scoring.
-    risk_scores = _score_population(feats)
+    risk_scores = _score_population(feats, art=None if args.dry_run else art)
 
     # PH test + SHAP are computed inside _score_population's try blocks and printed.
 
@@ -130,9 +180,50 @@ def run(args: argparse.Namespace) -> dict:
     return {"metrics": metrics, "ablation": ablation, "risk_scores": risk_scores}
 
 
-def _score_population(feats: pd.DataFrame) -> dict:
+def _write_feature_decisions(art: Path, X: pd.DataFrame) -> None:
+    """Write the design-matrix cleaning decisions to feature_decisions.md."""
+    art.mkdir(parents=True, exist_ok=True)
+    lines = [
+        "# Feature decisions (stage 05 Cox design matrix)",
+        "",
+        "We clean the production Cox design matrix (full feature set, pooled) to keep "
+        "the Newton-Raphson fit well conditioned. Every drop or transform is listed "
+        "below with its reason. We never silently drop features.",
+        "",
+        "| Feature | Action | Reason |",
+        "|---|---|---|",
+    ]
+    for feat, action, reason in survival.DESIGN_DECISIONS:
+        lines.append(f"| {feat} | {action} | {reason} |")
+    if not survival.DESIGN_DECISIONS:
+        lines.append("| (none) | keep | matrix was already clean |")
+    lines += [
+        "",
+        f"Final design matrix: {X.shape[0]} rows x {X.shape[1]} columns.",
+        "",
+        "Topic collapse: the ~68 raw `topic_*` per-topic share columns are replaced "
+        "by ~9 complaint-theme shares. Each BERTopic topic is matched to its nearest "
+        "zero-shot theme (service_speed, staff_attitude, order_accuracy, food_quality, "
+        "cleanliness, value, management_response, drive_thru_takeout, other) by cosine "
+        "similarity between the MiniLM embedding of the topic's top words and each "
+        "theme phrase, then shares are summed per theme. The full topic-to-theme "
+        "assignment is in `artifacts/topic_theme_map.csv`.",
+        "",
+        "Fit: ridge-penalized `CoxPHFitter(l1_ratio=0)`, penalizer chosen by "
+        "cross-validated C index over [0.01, 0.05, 0.1, 0.5], with a damped "
+        "`step_size=0.5` retry if Newton-Raphson returns a NaN step. Tier 1 uses "
+        "subsampled inner tuning (one 3-fold CV on a stratified 10,000-row subsample "
+        "of each outer training fold) for speed at the ~46k-restaurant scale.",
+    ]
+    (art / "feature_decisions.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
+    print(f"Wrote feature_decisions.md ({len(survival.DESIGN_DECISIONS)} decisions).")
+
+
+def _score_population(feats: pd.DataFrame, art: Path | None = None) -> dict:
     """Fit the full pooled Cox model on all rows and build the scoring artifacts."""
-    X = survival.design_matrix(feats, "full", pooled=True)
+    X = survival.design_matrix(feats, "full", pooled=True, clean=True, record=True)
+    if art is not None:
+        _write_feature_decisions(art, X)
     model, pen = survival.tune_cox_penalizer(X, feats["duration_days"], feats["event"])
     print(f"\nProduction Cox fit (full, pooled), penalizer={pen}.")
 

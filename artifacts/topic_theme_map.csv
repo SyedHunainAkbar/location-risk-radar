@@ -1,0 +1,70 @@
+topic,top_words,theme,similarity
+0,"burger, fries, burgers, shake, guys, shack, good, cheese, shake shack, like",drive_thru_takeout,0.3393
+1,"came, minutes, table, server, food, waitress, asked, manager, said, service",service_speed,0.4172
+2,"fil, chick, chick fil, drive, location, order, chicken, nuggets, line, ve",drive_thru_takeout,0.4282
+3,"applebee, applebees, food, just, came, like, server, ordered, table, service",service_speed,0.4063
+4,"subway, sandwich, bread, sandwiches, sub, just, location, store, employees, don",drive_thru_takeout,0.4302
+5,"qdoba, burrito, chipotle, bowl, chips, tacos, taco, rice, like, food",food_quality,0.4238
+6,"wings, hooters, sauce, waitress, boneless, food, ordered, wing, buffalo, service",drive_thru_takeout,0.3744
+7,"chili, chilis, food, service, restaurant, just, time, bar, like, chips",food_quality,0.465
+8,"panda, express, panda express, chicken, orange chicken, orange, rice, food, chow, mein",food_quality,0.3887
+9,"denny, dennys, food, coffee, breakfast, waitress, eggs, service, pancakes, minutes",drive_thru_takeout,0.43
+10,"red, robin, red robin, burger, fries, burgers, table, food, time, service",drive_thru_takeout,0.3865
+11,"waffle, waffle house, house, eggs, hash, browns, hash browns, waffles, breakfast, cook",cleanliness,0.3188
+12,"jimmy, sandwich, johns, jimmy johns, john, jimmy john, bread, sandwiches, mayo, turkey",food_quality,0.363
+13,"pizza, blaze, pizzas, crust, blaze pizza, oven, toppings, dough, time, like",drive_thru_takeout,0.3257
+14,"dirty, clean, floor, place, tables, filthy, table, food, bathroom, floors",cleanliness,0.754
+15,"food, service, good, place, time, terrible, cold, great, just, bad",cleanliness,0.4993
+16,"stars, star, food, zero, zero stars, service, place, order, just, like",drive_thru_takeout,0.2655
+17,"open, closed, door, close, locked, hours, closing, sign, doors, 30",drive_thru_takeout,0.3183
+18,"cheddars, cheddar, food, chicken, time, ordered, table, meal, came, good",food_quality,0.4259
+19,"mask, masks, wearing, wear, wearing mask, nose, wear mask, wearing masks, covid, face",cleanliness,0.2454
+20,"drive, line, order, minutes, window, wait, slow, time, location, cars",drive_thru_takeout,0.4357
+21,"rice, chinese, chicken, fried rice, orange chicken, orange, fried, chinese food, food, mein",food_quality,0.3557
+22,"order, online, pick, ready, app, time, minutes, online order, called, placed",service_speed,0.3228
+23,"bartender, bar, sat bar, sat, service, drink, beer, bartenders, minutes, food",drive_thru_takeout,0.3981
+24,"salad, chicken, lettuce, dressing, chicken salad, ordered, grilled, small, just, grilled chicken",food_quality,0.4156
+25,"rude, manager, customer, employee, customers, attitude, employees, customer service, job, service",staff_attitude,0.5449
+26,"service, management, location, staff, place, gone, poor, worst, horrible, hill",cleanliness,0.5087
+27,"steak, medium, rare, medium rare, cooked, ordered, potatoes, steak cooked, mashed, ordered steak",food_quality,0.2738
+28,"roach, roaches, cockroach, flies, bugs, eat, crawling, rat, disgusting, place",cleanliness,0.4184
+29,"sub, subs, sandwich, bread, cheese, meat, turkey, sub par, ordered, just",food_quality,0.4098
+30,"curbside, pick, order, curbside pickup, car, pickup, curbside service, curbside pick, minutes, inside",drive_thru_takeout,0.6041
+31,"coupon, coupons, subway, honor, accept, use, sandwich, free, use coupon, location",drive_thru_takeout,0.3917
+32,"food poisoning, poisoning, sick, ate, food, eating, stomach, got, got food, diarrhea",food_quality,0.4926
+33,"freaky, freaky fast, fast, sandwich, delivery, hour, order, minutes, delivered, sandwiches",drive_thru_takeout,0.4262
+34,"hair, hair food, food, long, black, curly hair, manager, curly, hairs, disgusting",cleanliness,0.534
+35,"minutes, waited, wait, food, hour, 10 minutes, 45, 20, 10, seated",service_speed,0.3472
+36,"delivery, hour, freaky, order, freaky fast, fast, driver, called, time, order delivery",drive_thru_takeout,0.5728
+37,"fajitas, fajita, chili, chicken, steak, tortillas, plate, onions, peppers, like",food_quality,0.3789
+38,"yelp, review, reviews, yelp reviews, yelp review, restaurant, bad, don, people, delivery",drive_thru_takeout,0.3655
+39,"cfa, worst cfa, love cfa, location, line, drive, cfa ve, ve, order, time",staff_attitude,0.184
+40,"uber, uber eats, eats, ubereats, called, order, delivery, driver, ordered, ordered uber",drive_thru_takeout,0.5147
+41,"customer service, customer, service, order, orders, worst, worst customer, phone, worst service, answer",staff_attitude,0.438
+42,"gloves, hands, touching, change gloves, wearing gloves, wash, wearing, wash hands, touched, food",cleanliness,0.3289
+43,"airport, flight, airport food, slow, airport restaurant, place, food, service, like, bad",cleanliness,0.5205
+44,"salmon, pasta, shrimp, broccoli, chicken, cheese, tasted, ordered, flavor, cooked",food_quality,0.4879
+45,"racist, white, people, black, white people, come, like, manager, got, color",cleanliness,0.3206
+46,"card, credit, credit card, called, refund, said, cash, bank, gift, manager",management_response,0.2882
+47,"deliver, miles, delivery, miles away, away, won deliver, live, mile, don deliver, live miles",drive_thru_takeout,0.4585
+48,"rude, customer service, customer, employees, service, location, customers, staff, worst, worst customer",staff_attitude,0.6198
+49,"covid, 19, covid 19, online, order, fever, time, phone, excuse, covid excuse",cleanliness,0.3135
+50,"rude, sandwich, counter, sandwiches, rude rude, employees, girl, want, just, man",staff_attitude,0.5332
+51,"receipt, said, change, card, water, gave, discount, military, told, manager",management_response,0.4
+52,"music, loud, music loud, hear, couldn hear, volume, turn, blasting, loud music, couldn",cleanliness,0.2805
+53,"sandwich, price, cost, chicken sandwich, menu, chicken, prices, 99, just, priced",food_quality,0.3588
+54,"sandwich, said, asked, bread, wanted, told, cheese, foot long, want, subway",food_quality,0.3192
+55,"teriyaki, teriyaki chicken, chicken, sauce, teriyaki sauce, bean, string bean, bean chicken, string, order",food_quality,0.3102
+56,"beef, broccoli, beef broccoli, broccoli beef, rice, pieces beef, pieces, meat, plate, chicken",food_quality,0.31
+57,"burger, bleu, ordered, husband, fries, said, didn, asked, pink, burgers",order_accuracy,0.3155
+58,"order, phone, number, said, online, called, told, placed, asked, car",order_accuracy,0.3225
+59,"gluten, gluten free, free, allergy, gf, celiac, sick, allergies, menu, free menu",food_quality,0.2632
+60,"missing, items, order, messed, missing items, wrong, bag, ordered, make sure, time",order_accuracy,0.5604
+61,"avocado, sandwich, avocado spread, spread, beach club, club, extra, mayo, beach, bread",food_quality,0.3389
+62,"sandwiches, sandwich, service, horrible, staff, bag, customer, customer service, bag chips, making sandwiches",food_quality,0.4474
+63,"ribs, rack, rack ribs, baby ribs, baby, dry, potatoes, bbq, ordered, tough",drive_thru_takeout,0.2896
+64,"grubhub, grub, grub hub, hub, order, canceled, called, order grubhub, placed, refund",order_accuracy,0.336
+65,"breakfast, 10, 10 30, 30, line, morning, breakfast 10, serving breakfast, 10 30am, 30am",drive_thru_takeout,0.256
+66,"dog, service animal, animal, service dog, dogs, service, animals, law, service animals, permitted",staff_attitude,0.209
+67,"margarita, margaritas, que, el, está, perfect, te, servicio, mesa, perfect margarita",drive_thru_takeout,0.2482
+68,"cold, cold food, degrees, like cold, turkey bacon, food cold, food, freezing, air, coffee",food_quality,0.5487

@@ -41,6 +41,12 @@ env/
 # LLM gateway disk cache
 .cache/
 
+# Pipeline run logs
+logs/
+
+# Aspect-agent resume checkpoint (working state, not a deliverable)
+artifacts/aspect_checkpoint.jsonl
+
 # OS cruft
 .DS_Store
 Thumbs.db
