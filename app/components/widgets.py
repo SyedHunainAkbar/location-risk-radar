@@ -58,12 +58,13 @@ def agent_card(
     model: str | None = None,
     latency: float | None = None,
     cache: bool | None = None,
+    detail: str | None = None,
 ) -> None:
     """Render an agent card with status and the provider/model badge that answered."""
     dot = {"waiting": "⚪", "running": "🟡", "done": "🟢", "failed": "🔴", "skipped": "⚫"}.get(
         status, "⚪"
     )
-    lines = [f"**{dot} {name}**", f"<span class='lrr-muted'>{status.capitalize()}</span>"]
+    lines = [f"<b>{dot} {html.escape(name)}</b>", f"<span class='lrr-muted'>{status.capitalize()}</span>"]
     if provider:
         tag = "cached" if cache else "live"
         lines.append(
@@ -71,7 +72,9 @@ def agent_card(
             f"{html.escape(str(model or 'mock'))} ({tag})</span>"
         )
     if latency is not None:
-        lines.append(f"<span class='lrr-muted'>{latency:.2f}s</span>")
+        lines.append(f"<span class='lrr-muted'>{latency:.1f}s</span>")
+    if detail:
+        lines.append(f"<span class='lrr-muted'>{html.escape(detail)}</span>")
     container.markdown(
         "<div class='lrr-card'>" + "<br>".join(lines) + "</div>",
         unsafe_allow_html=True,

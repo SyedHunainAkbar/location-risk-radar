@@ -51,22 +51,41 @@ def render() -> None:
     # Three agent cards.
     st.subheader("Committee")
     cols = st.columns(3)
-    widgets.agent_card(cols[0], "Quant Analyst", "waiting")
-    widgets.agent_card(cols[1], "Voice of Customer", "waiting")
-    widgets.agent_card(cols[2], "Risk Auditor", "waiting")
+    cards = [c.empty() for c in cols]
+    for card, name in zip(cards, AGENTS):
+        widgets.agent_card(card, name, "waiting")
 
     live = state.is_live()
     if live:
-        if st.button("Convene committee", type="primary"):
-            _run_live(bid, risk)
-            return
         st.caption(
-            "Live mode: click to convene the committee. Cached briefs show below until then."
+            "Live mode: each click makes three real NVIDIA calls (about 1 to 3 minutes). "
+            "The precomputed brief shows below until you convene."
         )
+        if st.button("Convene committee", type="primary"):
+            _run_live(bid, risk, cards)
+            return
     else:
         st.caption("Cached mode: the precomputed brief loads instantly.")
 
     _render_cached(bid, briefs)
+
+
+AGENTS = ("Quant Analyst", "Voice of Customer", "Risk Auditor")
+AGENT_BUDGET_S = 150
+
+
+def _last_call():
+    """Provider/model/cache flag of the most recent gateway call (for the card badge)."""
+    try:
+        from lrr import gateway
+
+        rows = gateway.get_gateway().ledger.rows
+        if rows:
+            r = rows[-1]
+            return r.provider, r.model, r.cache_hit
+    except Exception:
+        pass
+    return None, None, None
 
 
 def _render_cached(bid: str, briefs) -> None:
@@ -125,8 +144,9 @@ def _render_cached(bid: str, briefs) -> None:
         )
 
 
-def _run_live(bid: str, risk) -> None:
-    import asyncio
+def _run_live(bid: str, risk, cards) -> None:
+    import concurrent.futures as cf
+    import time
 
     from lrr import agents
     from lrr.agents import auditor as auditor_mod
@@ -136,31 +156,64 @@ def _run_live(bid: str, risk) -> None:
     features = data._cached_read(
         str(data.config.DATA_DIR / data.config.features_file(data.config.LANDMARK_PRIMARY))
     )
+    if features is None:  # hosted app: the three fact-sheet features ship as an artifact
+        features = data._cached_read(
+            str(data.config.ARTIFACTS_DIR / "committee_features.parquet")
+        )
     shap = data._cached_read(str(data.config.ARTIFACTS_DIR / "shap_drivers.parquet"))
     fs = agents.build_factsheet(bid, risk, shap_drivers=shap, features=features)
     snippets = _retrieve(bid)
+    st.session_state["live_calls"] = st.session_state.get("live_calls", 0) + 3
+
+    q_card, v_card, a_card = cards
+    widgets.agent_card(q_card, AGENTS[0], "running", detail="explaining the model drivers")
+    widgets.agent_card(
+        v_card, AGENTS[1], "running", detail=f"reading {len(snippets)} customer reviews"
+    )
+    widgets.agent_card(a_card, AGENTS[2], "waiting", detail="waits for agents 1 and 2")
+
+    def _timed(fn, *a):
+        t0 = time.time()
+        out = fn(*a)
+        return out, time.time() - t0, _last_call()
 
     with st.status("Convening the committee ...", expanded=True) as status:
-        st.write("Agents 1 and 2 running in parallel ...")
-
-        async def _parallel():
-            return await asyncio.gather(
-                asyncio.to_thread(
-                    quant_mod.run_quant, fs, data.config.QUANT_PLACEHOLDER_RETRIES, None
-                ),
-                asyncio.to_thread(voc_mod.run_voc, snippets, None),
-            )
-
+        st.write("Quant Analyst and Voice of Customer are running in parallel ...")
         try:
-            quant_parsed, voc_result = asyncio.run(_parallel())
-            st.write("Quant Analyst and Voice of Customer done. Auditor checking ...")
+            pool = cf.ThreadPoolExecutor(max_workers=2)
+            fq = pool.submit(_timed, quant_mod.run_quant, fs,
+                             data.config.QUANT_PLACEHOLDER_RETRIES, None)
+            fv = pool.submit(_timed, voc_mod.run_voc, snippets, None)
+            quant_parsed, tq, (pq, mq, cq) = fq.result(timeout=AGENT_BUDGET_S)
+            widgets.agent_card(q_card, AGENTS[0], "done", pq, mq, tq, cq,
+                               detail=f"{len(quant_parsed.drivers)} driver explanations")
+            voc_result, tv, (pv, mv, cv) = fv.result(timeout=AGENT_BUDGET_S)
+            widgets.agent_card(v_card, AGENTS[1], "done", pv, mv, tv, cv,
+                               detail=f"{len(voc_result['items'])} grounded quotes "
+                                      f"({voc_result['dropped']} dropped)")
+            pool.shutdown(wait=False)
+
+            st.write("Risk Auditor is checking every claim ...")
+            widgets.agent_card(a_card, AGENTS[2], "running", detail="auditing claims")
             rendered = quant_mod.render_drivers(quant_parsed, fs)
             claims = auditor_mod.build_claims(rendered, voc_result)
-            audit = auditor_mod.run_auditor(claims, voc_result, {"review_volume": "unknown"})
-            status.update(label="Committee complete.", state="complete")
+            facts = {k: v for k, v in fs.items() if isinstance(v, str)}
+            pool2 = cf.ThreadPoolExecutor(max_workers=1)
+            fa = pool2.submit(_timed, auditor_mod.run_auditor, claims, voc_result,
+                              {"review_volume": "unknown", "factsheet": facts})
+            audit, ta, (pa, ma, ca) = fa.result(timeout=AGENT_BUDGET_S)
+            pool2.shutdown(wait=False)
+            n_sup = len(auditor_mod.supported_claim_ids(audit))
+            widgets.agent_card(a_card, AGENTS[2], "done", pa, ma, ta, ca,
+                               detail=f"{n_sup}/{len(audit.claims)} claims supported, "
+                                      f"grade {audit.confidence_grade}")
+            status.update(label=f"Committee complete in {tq + ta:.0f}s.", state="complete")
         except Exception as exc:  # noqa: BLE001
-            status.update(label="Committee failed; showing cached brief.", state="error")
-            st.warning(f"A provider call failed ({type(exc).__name__}).")
+            for card, name in zip(cards, AGENTS):
+                widgets.agent_card(card, name, "failed")
+            label = "timed out" if isinstance(exc, cf.TimeoutError) else type(exc).__name__
+            status.update(label=f"Live committee {label}; showing the precomputed brief.",
+                          state="error")
             _render_cached(bid, data.load("briefs"))
             return
 
@@ -187,6 +240,11 @@ def _retrieve(bid: str):
             return got
     except Exception:
         pass
+    # Hosted app: the full index is local only, so use the shipped evidence pack (the
+    # 8 most negative pre-landmark reviews for each High/Elevated location).
+    pack = data._cached_read(str(data.config.ARTIFACTS_DIR / "committee_snippets.parquet"))
+    if pack is not None:
+        return pack[pack["business_id"] == bid].reset_index(drop=True)
     return pd.DataFrame(columns=["review_id", "text", "stars", "date"])
 
 
@@ -194,6 +252,12 @@ def _render_live_brief(fs, rendered, voc_result, claims, audit, snippets) -> Non
     from lrr import agents
     from lrr.agents import auditor as auditor_mod
 
+    bid = fs.get("business_id", "")
+    name = data.label_map(data.locations()).get(bid, "This location")
+    rendered = [
+        dict(d, text=d["text"].replace(f"The business {bid}", name).replace(bid, name))
+        for d in rendered
+    ]
     supported = auditor_mod.supported_claim_ids(audit)
     gr = auditor_mod.groundedness_rate(audit)
     confidence = agents.compute_confidence(gr, len(voc_result["items"]), audit.confidence_grade)
