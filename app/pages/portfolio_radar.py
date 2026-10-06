@@ -150,35 +150,64 @@ def _risk_map(view: pd.DataFrame) -> None:
         "\u26AA not scored (inactive before 2018). Larger dots are higher risk. "
         "Hover for chain, city, tier and score; use the sidebar to zoom into a state."
     )
-    try:
-        import pydeck as pdk
+    # Plain Python types: Arrow-backed string columns do not serialize reliably to
+    # the browser map layer, which left the dots invisible.
+    m = pd.DataFrame(
+        {
+            "lat": merged["lat"].astype(float),
+            "lon": merged["lon"].astype(float),
+            "tier": merged["risk_tier"].astype(object).astype(str),
+            "hover": [
+                f"<b>{c}</b> ({cl})<br>{ci}, {stt}<br>Tier: {t}<br>Score: {sc}"
+                for c, cl, ci, stt, t, sc in zip(
+                    merged["chain"].astype(object), merged["cluster"].astype(object),
+                    merged["city"].astype(object), merged["state"].astype(object),
+                    merged["risk_tier"].astype(object), merged["score_txt"],
+                )
+            ],
+        }
+    )
+    import plotly.graph_objects as go
 
-        layer = pdk.Layer(
-            "ScatterplotLayer",
-            data=merged[["lon", "lat", "color", "px", "chain", "city", "state",
-                         "cluster", "risk_tier", "score_txt"]],
-            get_position="[lon, lat]",
-            get_fill_color="color",
-            get_radius="px",
-            radius_units="pixels",
-            stroked=True,
-            get_line_color=[255, 255, 255],
-            line_width_min_pixels=0.5,
-            pickable=True,
+    colors = dict(theme.TIER_COLORS, **{"Not scored": "#A0A4AB"})
+    # Streamlit 1.38 ships a plotly.js that renders the token-free "mapbox" carto
+    # style; newer plotly versions only offer the MapLibre "map" trace. Use whichever
+    # this environment provides.
+    use_mapbox = hasattr(go, "Scattermapbox")
+    Trace = go.Scattermapbox if use_mapbox else go.Scattermap
+    fig = go.Figure()
+    for tier in ["Not scored", "Low", "Watch", "Elevated", "High"]:
+        d = m[m["tier"] == tier]
+        if d.empty:
+            continue
+        fig.add_trace(
+            Trace(
+                lat=d["lat"].tolist(),
+                lon=d["lon"].tolist(),
+                mode="markers",
+                name=f"{tier} ({len(d)})",
+                marker={"size": size[tier] * 1.6, "color": colors[tier],
+                        "opacity": 0.55 if tier in ("Low", "Not scored") else 0.9},
+                text=d["hover"].tolist(),
+                hovertemplate="%{text}<extra></extra>",
+            )
         )
-        tooltip = {"text": "{chain} ({cluster})\n{city}, {state}\nTier: {risk_tier}\nScore: {score_txt}"}
-        lat0, lat1 = merged["lat"].quantile([0.02, 0.98])
-        lon0, lon1 = merged["lon"].quantile([0.02, 0.98])
-        span = max(lat1 - lat0, (lon1 - lon0) / 1.6, 0.05)
-        zoom = float(max(2.5, min(11, 8.5 - __import__("math").log2(span))))
-        view_state = pdk.ViewState(
-            latitude=float((lat0 + lat1) / 2), longitude=float((lon0 + lon1) / 2), zoom=zoom
-        )
-        st.pydeck_chart(
-            pdk.Deck(layers=[layer], initial_view_state=view_state, tooltip=tooltip, map_style=None)
-        )
-    except Exception:
-        st.map(merged.rename(columns={"lat": "latitude", "lon": "longitude"}))
+    lat0, lat1 = m["lat"].quantile([0.02, 0.98])
+    lon0, lon1 = m["lon"].quantile([0.02, 0.98])
+    import math
+
+    span = max(lat1 - lat0, (lon1 - lon0) / 1.6, 0.05)
+    zoom = float(max(2.3, min(11, 7.6 - math.log2(span))))
+    fig.update_layout(
+        **{("mapbox" if use_mapbox else "map"): {
+            "style": "carto-positron", "zoom": zoom,
+            "center": {"lat": float((lat0 + lat1) / 2), "lon": float((lon0 + lon1) / 2)}}},
+        height=520,
+        margin={"l": 0, "r": 0, "t": 0, "b": 0},
+        legend={"title": "Risk tier", "yanchor": "top", "y": 0.98, "xanchor": "left",
+                "x": 0.01, "bgcolor": "rgba(255,255,255,0.85)"},
+    )
+    st.plotly_chart(fig, use_container_width=True)
     tiers = [t for t in ["High", "Elevated", "Watch", "Low", "Not scored"]
              if t in set(merged["risk_tier"])]
     by_state = merged.groupby(["state", "risk_tier"]).size().unstack(fill_value=0)[tiers]
