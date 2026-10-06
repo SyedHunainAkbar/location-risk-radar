@@ -71,7 +71,32 @@ def render() -> None:
 
 
 AGENTS = ("Quant Analyst", "Voice of Customer", "Risk Auditor")
-AGENT_BUDGET_S = 150
+AGENT_BUDGET_S = 75
+LIVE_SNIPPETS = 6
+SNIPPET_CHARS = 450
+
+
+@st.cache_resource(show_spinner=False)
+def _committee_memo() -> dict:
+    """Process-wide memo of finished live committees, so a repeat is instant."""
+    return {}
+
+
+def _fast_gateway():
+    """Gateway tuned for an interactive demo: the 11b model first (several times faster
+    than 90b on these prompts), tight timeouts, short outputs, 90b as the fallback."""
+    from lrr import gateway
+    from lrr.gateway import routing
+
+    routes = dict(routing.load_routes())
+    fast, strong = "meta/llama-3.2-11b-vision-instruct", "meta/llama-3.2-90b-vision-instruct"
+    for role, temp in (("quant_analyst", 0.0), ("voice_of_customer", 0.2),
+                       ("risk_auditor", 0.0)):
+        routes[role] = [
+            routing.RouteEntry("nvidia", fast, temp, 700, 40),
+            routing.RouteEntry("nvidia", strong, temp, 700, 60),
+        ]
+    return gateway.get_gateway(routes=routes)
 
 
 def _last_call():
@@ -162,8 +187,23 @@ def _run_live(bid: str, risk, cards) -> None:
         )
     shap = data._cached_read(str(data.config.ARTIFACTS_DIR / "shap_drivers.parquet"))
     fs = agents.build_factsheet(bid, risk, shap_drivers=shap, features=features)
-    snippets = _retrieve(bid)
+    snippets = _retrieve(bid).head(LIVE_SNIPPETS).copy()
+    if "text" in snippets:
+        snippets["text"] = snippets["text"].astype(str).str.slice(0, SNIPPET_CHARS)
+
+    memo = _committee_memo()
+    if bid in memo:
+        res = memo[bid]
+        for card, name, meta in zip(cards, AGENTS, res["cards"]):
+            widgets.agent_card(card, name, "done", *meta[:4], detail=meta[4])
+        st.success(f"Committee result from this session's live run ({res['secs']:.0f}s).")
+        _render_live_brief(fs, res["rendered"], res["voc"], res["claims"], res["audit"],
+                           snippets)
+        return
+
+    _fast_gateway()
     st.session_state["live_calls"] = st.session_state.get("live_calls", 0) + 3
+    failed = None
 
     q_card, v_card, a_card = cards
     widgets.agent_card(q_card, AGENTS[0], "running", detail="explaining the model drivers")
@@ -204,18 +244,30 @@ def _run_live(bid: str, risk, cards) -> None:
             audit, ta, (pa, ma, ca) = fa.result(timeout=AGENT_BUDGET_S)
             pool2.shutdown(wait=False)
             n_sup = len(auditor_mod.supported_claim_ids(audit))
-            widgets.agent_card(a_card, AGENTS[2], "done", pa, ma, ta, ca,
-                               detail=f"{n_sup}/{len(audit.claims)} claims supported, "
-                                      f"grade {audit.confidence_grade}")
-            status.update(label=f"Committee complete in {tq + ta:.0f}s.", state="complete")
+            a_detail = (f"{n_sup}/{len(audit.claims)} claims supported, "
+                        f"grade {audit.confidence_grade}")
+            widgets.agent_card(a_card, AGENTS[2], "done", pa, ma, ta, ca, detail=a_detail)
+            secs = max(tq, tv) + ta
+            status.update(label=f"Committee complete in {secs:.0f}s.", state="complete")
+            memo[bid] = {
+                "rendered": rendered, "voc": voc_result, "claims": claims, "audit": audit,
+                "secs": secs,
+                "cards": [
+                    (pq, mq, tq, cq, f"{len(quant_parsed.drivers)} driver explanations"),
+                    (pv, mv, tv, cv, f"{len(voc_result['items'])} grounded quotes"),
+                    (pa, ma, ta, ca, a_detail),
+                ],
+            }
         except Exception as exc:  # noqa: BLE001
             for card, name in zip(cards, AGENTS):
                 widgets.agent_card(card, name, "failed")
-            label = "timed out" if isinstance(exc, cf.TimeoutError) else type(exc).__name__
-            status.update(label=f"Live committee {label}; showing the precomputed brief.",
+            failed = "timed out" if isinstance(exc, cf.TimeoutError) else type(exc).__name__
+            status.update(label=f"Live committee {failed}; showing the precomputed brief.",
                           state="error")
-            _render_cached(bid, data.load("briefs"))
-            return
+    # Rendered outside the status box: Streamlit forbids expanders inside expanders.
+    if failed:
+        _render_cached(bid, data.load("briefs"))
+        return
 
     _render_live_brief(fs, rendered, voc_result, claims, audit, snippets)
 
