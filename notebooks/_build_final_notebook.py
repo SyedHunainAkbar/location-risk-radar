@@ -41,8 +41,8 @@ md(r"""
 
 **Members:** Andy Lin | Hunain Akbar | Ishani Patel | Jake Ida | Yukti Gandhi
 
-- Live app: https://location-risk-radar.streamlit.app
-- GitHub repo: https://github.com/lrr-analytics/location-risk-radar
+- Live app: https://location-risk-radar-lrr-cis509.streamlit.app
+- GitHub repo: https://github.com/SyedHunainAkbar/location-risk-radar
 
 ## Executive summary
 
@@ -51,24 +51,30 @@ the language of customer reviews. The default operating metric, average star rat
 barely separates survivors from closures, so we build the signal from engagement
 dynamics and review text instead.
 
-Four headline numbers frame the work:
+Five headline numbers frame the work:
 
-1. **~0.03 stars.** The average rating gap between open and closed restaurants. Stars
-   alone do not distinguish them.
-2. **30 chains.** The locked instructor-approved cohort, 15 Fast Food and 15
-   Non-Fast Food, modeled as two clusters.
-3. **24 months.** The prediction horizon after each landmark date, with features
-   drawn only from the strict past.
-4. **Text adds measurable lift over stars.** The survival ablation shows the C index
-   rising from the stars-only baseline as engagement and text features are added.
+1. **0.026 stars.** The average rating gap between open and closed restaurants across
+   all 52,268 Yelp restaurants (EDA). Stars alone barely distinguish them.
+2. **2,054 locations, 30 chains.** The locked cohort (15 Fast Food, 15 Non-Fast Food)
+   reproduced exactly from the EDA; 1,545 were active at the 2018 landmark and are
+   scored, the other 509 had already gone quiet and are reported, not scored.
+3. **+0.037 C index in Fast Food.** Engagement plus review text lifts the Fast Food
+   survival model from 0.640 (stars only) to 0.677 under chain-grouped cross
+   validation, where 59 of the 65 closures occur.
+4. **9 complaint themes beat 68 raw topics.** Collapsing BERTopic topics into
+   operational themes raises the pooled full-model C index from 0.593 to 0.632.
+5. **r = 0.907.** Three grounded LLM aspect agents recover review stars from text
+   alone (150 reviews, MAE 0.46), and the Risk Committee renders every number from
+   Python (numeric fidelity 1.0 on 10 live briefs).
 
-**Takeaway:** the closure signal lives in engagement and language, not in the star
-rating, and this notebook reproduces that result end to end.
+**Takeaway:** in the cluster with enough closures to learn from, engagement and
+language add signal beyond the star rating, and the LLM layer turns that signal into
+cited, number-faithful evidence an operator can act on.
 """)
 
 code(r'''
 # Environment setup. In Colab, clone the repo and install requirements first:
-#   !git clone https://github.com/lrr-analytics/location-risk-radar.git
+#   !git clone https://github.com/SyedHunainAkbar/location-risk-radar.git
 #   %cd location-risk-radar
 #   !pip install -q -r requirements.txt
 #
@@ -155,22 +161,22 @@ code(r'''
 traceability = pd.DataFrame([
     {"objective": "LA1 spaCy normalization + descriptive lexicons",
      "notebook_section": "3. Text processing",
-     "app_page": "Location detail -> Complaint themes"},
-    {"objective": "LA2 classical sentiment (TF-IDF + calibration), grouped split",
+     "app_page": "Complaint Themes"},
+    {"objective": "LA2 classical sentiment (count/TF-IDF, NB/SVM/LR, VADER), grouped split",
      "notebook_section": "4. Sentiment modeling",
-     "app_page": "Location detail -> Sentiment trend"},
-    {"objective": "LA3 deep sentiment (GRU/LSTM + GloVe) benchmark",
+     "app_page": "Model Lab (benchmark), Location Deep Dive"},
+    {"objective": "LA3 transfer and benchmark discipline (held-out + cohort transfer test)",
      "notebook_section": "4. Sentiment modeling",
-     "app_page": "Benchmark table (read-only)"},
-    {"objective": "LA4 BERTopic complaint themes, zero-shot vs unsupervised",
+     "app_page": "Model Lab"},
+    {"objective": "LA4 BERTopic complaint themes per cluster, over time and by outcome",
      "notebook_section": "5. Complaint themes",
-     "app_page": "Location detail -> Complaint themes"},
-    {"objective": "Survival / hazard model (landmark, two-tier)",
+     "app_page": "Complaint Themes"},
+    {"objective": "Survival / hazard model (landmark, chain-grouped CV)",
      "notebook_section": "6. Survival model",
-     "app_page": "Portfolio risk view + Location detail"},
+     "app_page": "Portfolio Radar, Location Deep Dive"},
     {"objective": "LA5 LLM layer: gateway, aspect agents, RAG, Risk Committee",
      "notebook_section": "7. LLM layer",
-     "app_page": "Evidence assistant + Location Risk Brief"},
+     "app_page": "Ask the Reviews, Risk Committee, Model Lab"},
 ])
 display(traceability)
 takeaway("Every lab objective maps to a concrete notebook section and a page an "
@@ -185,7 +191,7 @@ ratings to see closure risk coming?
 
 Restaurant chains with many locations need to know which locations are slipping
 before they close. Managers lean on the average star rating, but in our Yelp data the
-mean rating of open and closed restaurants differs by only about 0.03 stars, so the
+mean rating of open and closed restaurants differs by only 0.026 stars, so the
 default KPI is nearly blind to closure. Our proposal and EDA established this gap and
 motivated a system that reads engagement dynamics (review, check-in, and tip volume
 and recency) and the language of reviews, modeled separately for the Fast Food and
@@ -198,9 +204,10 @@ code(r'''
 loc = load_artifact(config.COHORT_LOCATIONS_FILE)
 if loc is not None and {"is_open", "stars"}.issubset(loc.columns):
     gap = loc.loc[loc.is_open == 1, "stars"].mean() - loc.loc[loc.is_open == 0, "stars"].mean()
-    print(f"Open vs closed mean-star gap (cohort): {gap:.3f}")
+    print(f"Open vs closed mean-star gap, 30-chain cohort: {gap:.3f}")
+    print("Open vs closed mean-star gap, all 52,268 restaurants (EDA): 0.026")
 else:
-    print("Cohort locations not available; the EDA value is ~0.03 stars.")
+    print("Cohort locations not available; the EDA value is 0.026 stars.")
 takeaway("Stars barely separate open from closed locations, so the signal must come "
          "from engagement dynamics and review language.")
 ''')
@@ -306,12 +313,12 @@ rows = []
 if all_rest is not None:
     rows.append({"phase": "A: corpus (all restaurants)",
                  "locations": int(all_rest["business_id"].nunique()),
-                 "chains": int(all_rest["chain"].nunique()),
+                 "distinct_names": int(all_rest["chain"].nunique()),
                  "cohort_locations": int(all_rest["is_cohort"].sum())})
 if loc is not None:
     rows.append({"phase": "B: cohort (30 chains)",
                  "locations": int(loc["business_id"].nunique()),
-                 "chains": int(loc["chain"].nunique()),
+                 "distinct_names": int(loc["chain"].nunique()),
                  "cohort_locations": int(loc["business_id"].nunique())})
 if rows:
     display(pd.DataFrame(rows))
@@ -371,9 +378,12 @@ than open ones?
 We train the TF-IDF plus calibrated linear scorer on a stratified sample of up to one
 million NON-cohort reviews with a business-grouped split, so the cohort is never seen
 in training. We then evaluate twice: on a held-out non-cohort test set and on all
-cohort reviews as an out-of-sample transfer test. We benchmark against VADER and
-(offline) GRU and LSTM with GloVe, choose the production scorer by macro F1, calibrate
-it, and score every review, then plot the closed-versus-open sentiment trajectory.
+cohort reviews as an out-of-sample transfer test. We benchmark seven scorers (VADER,
+and Multinomial NB, LinearSVC, and Logistic Regression on count and TF-IDF features),
+choose the production scorer by macro F1, calibrate it, and score every review, then
+plot the closed-versus-open sentiment trajectory. The LA3 recurrent models (GRU and
+LSTM with GloVe) were benchmarked in the lab assignment and are not re-run here; the
+classical scorer already exceeds 0.95 macro F1 and deploys in the app's memory budget.
 """)
 
 code(r'''
@@ -426,8 +436,8 @@ if sent is not None and reviews is not None and loc is not None:
     plt.xticks(rotation=90); plt.tight_layout(); plt.show()
 else:
     print("Sentiment trajectory needs review_sentiment, cohort_reviews, and locations.")
-takeaway("The calibrated classical scorer wins on macro F1 and deployability, and "
-         "closed locations drift to lower sentiment before they go quiet.")
+takeaway("TF-IDF + LinearSVC wins on macro F1 (0.956) and transfers to the cohort at "
+         "0.960, so the sentiment features are trustworthy inputs to the survival model.")
 ''')
 
 # =========================================================================== #
@@ -440,10 +450,12 @@ md(r"""
 **Question this section answers:** what do customers complain about per cluster, and do
 complaints shift over time or differ by outcome?
 
-We model negative reviews per cluster with BERTopic under a locked UMAP configuration,
-compare an unsupervised model against a zero-shot model seeded with operational
-complaint themes, and track topics over time and by outcome. Topic labels are the
-human-checkable LLM labels with any overrides applied.
+We model negative reviews (1 to 2 stars) per cluster with BERTopic under a locked UMAP
+configuration and track topics over time and by outcome. Topic labels were generated
+live by an NVIDIA Llama 3.2 90B model from each topic's top words plus five
+representative reviews, and a second call tags each topic as a complaint or a brand
+or menu topic. For the survival model we map every topic to one of nine operational
+complaint themes by embedding similarity (`artifacts/topic_theme_map.csv`).
 """)
 
 code(r'''
@@ -454,8 +466,9 @@ for cluster in ("Fast Food", "Non-Fast Food"):
         display(topics.head(12))
     else:
         show(None)
-takeaway("Each cluster has its own complaint vocabulary; the zero-shot seeds align the "
-         "discovered topics with the operational themes managers actually act on.")
+takeaway("Service failures lead both clusters: poor table service is the largest Fast "
+         "Food topic (driven by sit-down brands in that cluster), and slow service and "
+         "waits lead Non-Fast Food, followed by food-specific issues such as steak cooking.")
 ''')
 
 code(r'''
@@ -470,8 +483,8 @@ for cluster, slug in slug_map.items():
     if co is not None:
         display(Markdown(f"**{cluster}: topic counts by outcome (head)**"))
         display(co.head(10))
-takeaway("Complaint mix shifts over time and skews toward service and wait themes in "
-         "closed locations, which motivates using topic shares as survival features.")
+takeaway("Complaint mix shifts over time and differs between closed and open "
+         "locations, which motivates using theme shares as survival features.")
 ''')
 
 # =========================================================================== #
@@ -479,18 +492,24 @@ takeaway("Complaint mix shifts over time and skews toward service and wait theme
 # =========================================================================== #
 
 md(r"""
-## 6. Survival model: two-tier landmark design
+## 6. Survival model: landmark design with chain-grouped validation
 
 **Question this section answers:** does the leakage-safe survival model beat the
-stars-only baseline, and does the corpus (Phase A) signal help the cohort (Phase B)?
+stars-only baseline, and where is that evidence strong enough to trust?
 
-We freeze a landmark T, build every feature from records dated strictly before T, and
-observe closure over the next 24 months, proxying the closure date with last activity.
-**Tier 1 (Phase A)** is a corpus-wide Cox model over all eligible restaurants using
-engagement, check-in, tip, stars, and sentiment aggregates (no topics). **Tier 2
-(Phase B)** keeps the cluster-specific cohort models and stacks the out-of-fold Tier 1
-score as a feature, so the corpus signal informs the cohort without leakage. We
-validate with GroupKFold by chain (by business for singletons) plus a temporal check.
+We freeze a landmark T = 2018-01-01, build every feature from records dated strictly
+before T, and observe closure over the next 24 months, proxying the closure date with
+last observed activity. A location is eligible when its first review predates T by at
+least 12 months and it shows activity in the six months before T: 1,545 of the 2,054
+cohort locations qualify, with 65 closures in the window (59 Fast Food, 6 Non-Fast
+Food). The other 509 had already gone quiet before T; scoring them would leak the
+outcome, so the app lists them with their observed status instead.
+
+We fit a ridge-penalized Cox proportional hazards model on four nested feature sets
+and validate with GroupKFold by chain, so no chain appears in both training and test.
+The production design matrix is cleaned before fitting (median imputation with
+missingness flags, zero-variance and |r| > 0.95 columns dropped), documented in
+`artifacts/feature_decisions.md`.
 """)
 
 md(r"""
@@ -503,117 +522,91 @@ md(r"""
           tenure >= 12m                    activity required
 ```
 
-Leakage controls: a strict pre-T slice on every source, a dropped "days since last
-activity at or after T" feature, out-of-fold chain priors, and an explicit assertion
-that no feature row uses a record dated on or after T.
+Leakage controls: a strict pre-T slice on every source, no feature that looks at or
+after T, chain priors computed out of fold, and an activity filter that keeps
+already-dormant locations out of the scored set.
 """)
 
-code(r'''
-# Ablation: stars only vs engagement vs engagement + text vs full.
+code(r"""
+# Ablation by scope: Harrell C index under chain-grouped cross validation.
+metrics = load_artifact(config.MODEL_METRICS_FILE)
+feats = load_artifact(config.features_file(config.LANDMARK_PRIMARY), base=DATA)
+if metrics is not None:
+    order = ["stars_only", "engagement", "engagement_text", "full", "full_raw_topics"]
+    abl = (metrics.pivot_table(index="feature_set", columns="scope", values="harrell_c")
+                  .reindex([o for o in order if o in set(metrics["feature_set"])]))
+    abl = abl[[c for c in ["pooled", "Fast Food", "Non-Fast Food"] if c in abl.columns]]
+    for col in abl.columns:
+        abl[f"delta_vs_stars ({col})"] = abl[col] - abl.loc["stars_only", col]
+    display(abl.round(3))
+if feats is not None and {"event", "cluster"}.issubset(feats.columns):
+    ev = feats.groupby("cluster")["event"].agg(events="sum", locations="count")
+    display(Markdown("**Closures in the 24-month window by cluster**"))
+    display(ev)
+takeaway("Fast Food carries the evidence: engagement plus text lifts the C index from "
+         "0.640 to 0.677. Pooled, stars alone is a strong baseline (0.656). Non-Fast "
+         "Food has only 6 closures, so its C index is not interpretable and we do not "
+         "draw conclusions from it.")
+""")
+
+code(r"""
+# Complaint themes versus raw topics in the full pooled model.
 metrics = load_artifact(config.MODEL_METRICS_FILE)
 if metrics is not None:
-    cols = [c for c in ["scope", "feature_set", "model", "harrell_c",
-                         "delta_c_vs_stars", "uno_c", "auc_12m", "auc_24m", "ibs"]
-            if c in metrics.columns]
-    pooled = metrics[metrics.get("scope", "pooled") == "pooled"] if "scope" in metrics else metrics
-    display(pooled[cols].round(4))
-else:
-    print("Run pipeline/04_features.py then pipeline/05_survival.py for metrics.")
-takeaway("Adding engagement and then text raises the concordance index above the "
-         "stars-only baseline, which is the core evidence that review language matters.")
-''')
-
-code(r'''
-# Two-tier view: Phase A corpus ablation (Tier 1) and whether stacking helps Phase B.
-metrics = load_artifact(config.MODEL_METRICS_FILE)
-if metrics is not None and "tier" in metrics.columns:
-    phase_a = metrics[metrics["tier"] == "tier1"]
-    if len(phase_a):
-        display(Markdown("**Phase A (Tier 1 corpus): stars vs engagement vs "
-                         "engagement + sentiment**"))
-        cols = [c for c in ["feature_set", "harrell_c", "delta_c_vs_stars"]
-                if c in phase_a.columns]
-        display(phase_a[cols].round(4))
-else:
-    print("Run pipeline/05b_tier1_survival.py for the Phase A (Tier 1) ablation.")
-
-risk = load_artifact(config.RISK_SCORES_FILE)
-if risk is not None and set(config.TIER_SCORE_FIELDS).issubset(risk.columns):
-    display(Markdown("**Phase B (cohort): Tier 1 vs Tier 2 vs final score (head)**"))
-    cols = [c for c in ["business_id", "chain", "cluster", "tier1_score",
-                        "tier2_score", "final_score", "risk_tier"]
-            if c in risk.columns]
-    display(risk.sort_values("final_score", ascending=False)[cols].head(10))
-    print("Final-score rule:", config.FINAL_SCORE_RULE)
-takeaway("Tier 1 reproduces the Phase A headline on the full corpus, and stacking its "
-         "out-of-fold score into the cohort models tests whether the corpus signal "
-         "adds lift beyond the cohort's own features.")
-''')
-
-md(r"""
-**How stacking avoids leakage.** The Tier 1 corpus model produces an out-of-fold risk
-score for every restaurant: we assign folds by chain, train Tier 1 on all folds but
-one, and predict the held-out fold. A cohort location therefore receives a Tier 1
-score only from models that never saw its chain. We feed that out-of-fold score into
-the cluster-specific Tier 2 model as one more feature. Because the score for each row
-comes from a model trained without that row's group, the stack adds the corpus signal
-without letting the outcome leak back in.
-
-**Final-score rule.** We report `tier1_score`, `tier2_score`, and `final_score`. The
-final score uses the cohort's cluster-specific Tier 2 model for cohort locations and
-the Tier 1 corpus model for every other restaurant, so the calibrated cohort models
-stay authoritative while coverage extends to the full universe.
+    pooled = metrics[metrics["scope"] == "pooled"].set_index("feature_set")["harrell_c"]
+    if {"full", "full_raw_topics"}.issubset(pooled.index):
+        print(f"Full model, 9 complaint themes : C = {pooled['full']:.3f}")
+        print(f"Full model, 68 raw topic shares: C = {pooled['full_raw_topics']:.3f}")
+        print(f"Gain from theme collapse       : +{pooled['full'] - pooled['full_raw_topics']:.3f}")
+takeaway("Collapsing 68 sparse topic shares into 9 operational themes reduces noise "
+         "and raises the pooled C index by 0.039, and the themes are what a manager "
+         "can act on.")
 """)
 
-code(r'''
-# T = 2019 sensitivity: the same design re-fit at the later landmark. We compare the
-# pooled Cox concordance across landmarks to show the ranking is stable and not an
-# artifact of the 2018 cutoff or the COVID shock that follows early 2020.
-metrics = load_artifact(config.MODEL_METRICS_FILE)
-if metrics is not None and "landmark" in metrics.columns:
-    sens = metrics[metrics["feature_set"] == "full"]
-    cols = [c for c in ["landmark", "scope", "harrell_c", "auc_12m", "auc_24m"]
-            if c in sens.columns]
-    display(sens[cols].round(4))
-else:
-    print("Primary landmark T=2018-01-01; sensitivity landmark T=2019-01-01. Run "
-          "stage 04/05 at both landmarks to populate the comparison. We read 2018 as "
-          "primary because the 24-month window stays clear of the COVID shock, and "
-          "treat 2019 as a robustness check.")
-takeaway("Stacking is leakage-safe by fold-by-chain construction, and the risk "
-         "ranking holds at the 2019 landmark, so the result is not a 2018 artifact.")
-''')
+md(r"""
+**Scope note on the corpus (Tier 1) model.** The proposal planned a second, corpus-wide
+Cox model over all ~46K restaurants whose out-of-fold score would be stacked into the
+cohort model. Its nested cross validation exceeded our compute budget and was not
+completed, so every reported risk score comes from the cohort model above. The stage is
+implemented (`pipeline/05b_tier1_survival.py`) and can be run on a larger machine.
+Likewise, the 2019 sensitivity landmark features were built but the sensitivity fit is
+not reported here.
+""")
 
-code(r'''
-# Risk scores, tiers, hazard-ratio drivers, and survival at 12 and 24 months.
+code(r"""
+# Risk scores, tiers, drivers, and survival at 12 and 24 months, joined to city/state.
 risk = load_artifact(config.RISK_SCORES_FILE)
+loc = load_artifact(config.COHORT_LOCATIONS_FILE)
 if risk is not None:
-    display(Markdown("**Risk-tier distribution**"))
-    display(risk["risk_tier"].value_counts().rename_axis("tier").to_frame("locations"))
-    display(Markdown("**Highest-risk locations (head)**"))
-    cols = [c for c in ["business_id", "chain", "cluster", "risk_score",
+    display(Markdown("**Risk tier by cluster (tiers are cut on the pooled 1,545)**"))
+    display(pd.crosstab(risk["cluster"], risk["risk_tier"])
+              [[t for t in ["High", "Elevated", "Watch", "Low"] if t in set(risk["risk_tier"])]])
+    top = risk.sort_values("risk_score", ascending=False).head(10)
+    if loc is not None:
+        top = top.merge(loc[["business_id", "city", "state"]], on="business_id", how="left")
+    cols = [c for c in ["chain", "city", "state", "cluster", "risk_score",
                         "risk_percentile", "risk_tier", "top_3_drivers",
-                        "surv_12m", "surv_24m"] if c in risk.columns]
-    display(risk.sort_values("risk_score", ascending=False)[cols].head(10))
-else:
-    show(None)
-''')
+                        "surv_12m", "surv_24m"] if c in top.columns]
+    display(Markdown("**Ten highest-risk locations**"))
+    display(top[cols].round(3))
+if risk is not None and loc is not None:
+    print(f"Cohort coverage: {len(loc):,} locations, {risk['business_id'].nunique():,} "
+          f"scored, {len(loc) - risk['business_id'].nunique():,} inactive before the landmark.")
+takeaway("All 155 High-tier locations are Fast Food, consistent with the EDA finding "
+         "that Fast Food closes more often. Among them the recurring drivers are the "
+         "chain's out-of-fold closure prior (155), the share of negative reviews (134), "
+         "and mean review sentiment (103).")
+"""
+)
 
-code(r'''
-# Calibration and temporal/sensitivity notes.
+code(r"""
+# Survival curves feed the Location Deep Dive page.
 curves = load_artifact(config.SURVIVAL_CURVES_FILE)
 if curves is not None:
-    display(Markdown("**Survival curves artifact (head)**"))
-    display(curves.head(8))
-print(
-    "Temporal validation trains on the 2018 landmark and tests on 2019; the "
-    "sensitivity landmark (2019) and the COVID shock after early 2020 are discussed "
-    "as threats to validity in Section 9. Schoenfeld tests flag any proportional-"
-    "hazards violations, handled by stratification or a time interaction."
-)
-takeaway("The ranking is stable across the temporal check and the 2019 landmark, and "
-         "calibration plus hazard ratios make the score auditable rather than a black box.")
-''')
+    print(f"Survival curves: {curves['business_id'].nunique():,} locations, "
+          f"{len(curves):,} rows (t_days, survival).")
+    display(curves.head(6))
+""")
 
 # =========================================================================== #
 # Section 7: LLM layer (LA5)
@@ -632,7 +625,9 @@ Committee of three agents writes each Location Risk Brief: a Quant Analyst (temp
 with placeholders only, Python fills the numbers), a Voice of Customer (grounded
 quotes with issue labels), and a different-family Risk Auditor that checks every
 claim. Python orchestrates them, grounds quotes, renders numbers, and derives the
-confidence grade.
+confidence grade. All reported LLM results were produced in strict live mode: a
+mock answer raises an error instead of passing as a model result, and cached mock
+answers are never reused.
 """)
 
 md(r"""
@@ -643,13 +638,13 @@ flowchart LR
   C[Caller: topics / aspects / rag / agents] -->|role + messages| G[LLM Gateway]
   G --> R[Role routing: config/gateway.yaml]
   R --> H{Provider healthy?}
-  H -->|yes| P1[openai]
-  H -->|yes| P2[nvidia]
-  H -->|voyager down| X[skip voyager]
+  H -->|yes| P1[NVIDIA Llama 3.2 90B]
+  H -->|yes| P2[NVIDIA Llama 3.2 11B]
   P1 --> Q[retry + backoff, JSON repair, cache, ledger]
   P2 --> Q
-  R --> M[mock terminal fallback]
-  M --> Q
+  R -.->|offline tests only| M[mock]
+  Q --> S{Strict live mode}
+  S -->|mock answer| E[raise error, never silently mock]
   Q --> O[GatewayResult: text, provider, model, cache_hit, fallback_used]
 ```
 
@@ -670,7 +665,8 @@ flowchart TD
 code(r'''
 aspect_eval = load_artifact(config.ASPECT_EVAL_FILE)
 if aspect_eval is not None:
-    display(Markdown("**Aspect agents: predicted stars vs actual (zero-shot vs few-shot)**"))
+    display(Markdown("**Aspect agents (food, service, ambience): predicted vs actual stars, "
+                     "150 reviews stratified by star rating, 5 per chain**"))
     display(aspect_eval.round(4))
 else:
     print("Run pipeline/06_aspects_rag.py --phase aspects for the aspect evaluation.")
@@ -679,6 +675,8 @@ rag_eval = load_artifact(config.RAG_EVAL_FILE)
 if rag_eval is not None:
     display(Markdown("**RAG evaluation: groundedness and retrieval**"))
     display(rag_eval.round(4))
+    print("Groundedness is judged per sentence by a separate 11B model with a strict "
+          "rubric; unsupported sentences are hidden in the app, not shown as fact.")
 ''')
 
 code(r'''
@@ -704,16 +702,18 @@ code(r'''
 # rejection rate, and latency/cost per brief from the gateway ledger.
 agent_eval = load_artifact(config.AGENT_EVAL_FILE)
 if agent_eval is not None:
-    cols = [c for c in ["n_briefs", "numeric_fidelity_rate", "mean_groundedness",
-                        "auditor_rejection_rate", "mean_latency_s", "total_est_cost_usd"]
+    cols = [c for c in ["n_briefs", "n_skipped_timeouts", "numeric_fidelity_rate",
+                        "mean_groundedness", "auditor_rejection_rate", "mean_latency_s",
+                        "total_est_cost_usd"]
             if c in agent_eval.columns]
     display(agent_eval[cols].round(4))
     from lrr import agents as _agents
     display(Markdown(f"**Confidence formula.** {_agents.CONFIDENCE_FORMULA}"))
 else:
     print("Run pipeline/08_eval_agents.py for the committee evaluation.")
-takeaway("Numeric fidelity is verified after rendering, not just asserted: the target "
-         "is 100% of brief numbers traceable to the Python fact sheet.")
+takeaway("On 10 live briefs, numeric fidelity is 1.0 (every number traces to the "
+         "Python fact sheet), and the auditor removes 40% of claims as unsupported, "
+         "which is the committee doing its job rather than rubber-stamping.")
 ''')
 
 code(r'''
@@ -722,12 +722,20 @@ briefs = load_artifact(config.BRIEFS_FILE)
 if briefs is not None and len(briefs):
     high = briefs[briefs["tier"] == "High"]
     row = (high.iloc[0] if len(high) else briefs.iloc[0])
+    _loc = load_artifact(config.COHORT_LOCATIONS_FILE)
+    _name = row["business_id"]
+    if _loc is not None:
+        _m = _loc[_loc["business_id"] == row["business_id"]]
+        if len(_m):
+            _r = _m.iloc[0]
+            _name = f"{_r['chain']}, {_r['city']}, {_r['state']} ({_r['cluster']})"
     md_brief = (
-        f"### Location Risk Brief: {row['business_id']}\n\n"
+        f"### Location Risk Brief: {_name}\n\n"
         f"**Tier:** {row['tier']}  |  **Confidence:** {row.get('confidence_label','')} "
         f"({row.get('confidence', float('nan')):.2f})  |  "
         f"**Groundedness:** {row.get('groundedness', float('nan')):.2f}\n\n"
-        f"**Why we flagged it (drivers):**\n\n{row.get('drivers','')}\n\n"
+        f"**Why we flagged it (drivers):**\n\n"
+        f"{str(row.get('drivers','')).replace(row['business_id'], _name)}\n\n"
         f"**Evidence (grounded quotes with citations):**\n\n{row.get('evidence','')}\n\n"
         f"**Recommended actions:**\n\n{row.get('actions','')}"
     )
@@ -749,11 +757,23 @@ md(r"""
 
 **Question this section answers:** how does an operator actually use this?
 
-The Streamlit app opens on a portfolio view ranked by risk tier, lets a manager drill
-into a location to see its risk score, survival curve, top drivers, and complaint
-themes, and exposes the evidence assistant for grounded questions. It reads only the
-small precomputed artifacts, so it runs in about 1 GB of memory and works with no API
-key via the cached answers.
+The Streamlit app has seven pages:
+
+- **Portfolio Radar:** all 2,054 cohort locations on a tier-colored map with metro
+  labels, a sortable watchlist (chain, city, state, cluster, tier, drivers), and
+  global filters for cluster, chain, state, and tier.
+- **Location Deep Dive:** one location's risk score, percentile, 12 and 24-month
+  survival, survival curve, and drivers.
+- **Risk Committee:** the three-agent brief, cached instantly or convened live with
+  per-agent progress, model, and latency.
+- **Complaint Themes:** BERTopic topics per cluster, over time and by outcome.
+- **Ask the Reviews:** grounded Q&A with numbered citations that expand to the source
+  review.
+- **Model Lab:** survival ablation, sentiment benchmark, aspect and agent evaluations.
+- **Methodology and Limitations.**
+
+It reads only small precomputed artifacts, so it works with no API key in Cached mode;
+Live mode routes through the same gateway with a per-session call cap.
 """)
 
 code(r'''
@@ -794,7 +814,16 @@ We state the known limitations plainly, carried from the product definition:
 
 - **No chain id.** Chains are grouped by normalized name, which is imperfect.
 - **Fast Food label noise.** Sit-down brands such as Chili's, Applebee's, and Denny's
-  appear in the Fast Food cluster.
+  appear in the Fast Food cluster; we keep the EDA's cluster definition unchanged.
+- **Few Non-Fast Food closures.** Only 6 of 403 eligible Non-Fast Food locations close
+  in the window, so Non-Fast Food survival metrics are not interpretable and its
+  locations rarely reach the High tier.
+- **509 inactive locations are not scored.** They had no activity in the six months
+  before the landmark; scoring them would leak the outcome.
+- **Corpus model not fit.** The planned Tier 1 corpus model and the 2019 sensitivity
+  fit were not completed within our compute budget.
+- **LLM evaluation sample sizes.** Aspect agents are evaluated on 150 reviews, the RAG
+  cache on 60 answers (10 locations), and the committee on 10 briefs.
 - **`is_open` is a status, not a closure date.** We proxy the closure date with last
   observed activity, so late censoring is approximate.
 - **Right censoring.** Locations still open at the window's end have unknown eventual
@@ -804,7 +833,8 @@ We state the known limitations plainly, carried from the product definition:
 
 Additional threats to validity: the COVID shock after early 2020 distorts activity and
 closure patterns, so we read the 2018 landmark as primary and treat 2019 as a
-sensitivity check. Geographic coverage in the Yelp data is uneven across chains.
+sensitivity check. Geographic coverage in the Yelp data is uneven: it covers about 14
+metro areas, so results describe those markets, not chains nationally.
 
 Ethics: the tool supports human triage, not automated decisions about people. It
 should never be used to justify adverse employment action; it points managers toward
@@ -816,6 +846,9 @@ code(r'''
 limitations = [
     "No chain_id; chains grouped by normalized name.",
     "Fast Food label noise (Chili's, Applebee's, Denny's in the Fast Food cluster).",
+    "Only 6 Non-Fast Food closures in the window; its C index is not interpretable.",
+    "509 locations inactive before the landmark are reported, not scored.",
+    "Tier 1 corpus model and 2019 sensitivity fit not completed.",
     "is_open is a status, not a closure date.",
     "Closure date proxied by last activity.",
     "Right censoring at the end of the observation window.",
@@ -836,9 +869,11 @@ md(r"""
 
 **Question this section answers:** what should an operator do with this?
 
-The star rating is a near-useless closure discriminator; engagement recency and volume
-and the language of reviews carry the signal, and the two clusters behave differently
-enough to justify separate models. For operators we recommend:
+The star rating barely separates open from closed restaurants (0.026 stars). In Fast
+Food, where closures are frequent enough to model, engagement and review language
+lift the survival model's ranking beyond stars, and operational complaint themes beat
+raw topics. Non-Fast Food closes far less often, which is itself the cluster contrast
+the EDA predicted. For operators we recommend:
 
 1. **Triage by tier weekly.** Review High and Elevated locations first; the tiers are
    calibrated percentiles, not raw scores.
@@ -879,7 +914,7 @@ score is computed in `src/lrr`.
 - **Andy Lin:** EDA, cohort reproduction, data quality.
 - **Hunain Akbar:** survival modeling, features, evaluation.
 - **Ishani Patel:** topic modeling and complaint-theme interpretation.
-- **Jake Ida:** sentiment modeling and the deep-learning benchmark.
+- **Jake Ida:** sentiment modeling and the benchmark.
 - **Yukti Gandhi:** LLM aspect agents, RAG assistant, and the app.
 
 All members contributed to the write-up and reviewed the final notebook.
