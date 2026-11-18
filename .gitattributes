@@ -8,3 +8,5 @@
 *.npy binary
 *.ipynb binary
 *.html binary
+*.html linguist-vendored
+*.ipynb linguist-vendored
