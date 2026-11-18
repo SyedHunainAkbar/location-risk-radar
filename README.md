@@ -5,14 +5,15 @@
 [![CI](https://github.com/SyedHunainAkbar/location-risk-radar/actions/workflows/ci.yml/badge.svg)](https://github.com/SyedHunainAkbar/location-risk-radar/actions/workflows/ci.yml)
 [![Python 3.11](https://img.shields.io/badge/python-3.11-blue.svg)](https://www.python.org/downloads/release/python-3110/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
-[![Streamlit](https://img.shields.io/badge/Streamlit-run%20locally-ff4b4b.svg)](app/streamlit_app.py)
+[![Streamlit](https://img.shields.io/badge/Streamlit-live%20app-2ea44f.svg)](https://location-risk-radar-lrr-cis509.streamlit.app)
 
 We flag restaurant chain locations at elevated risk of closure and explain why using
 the language of customer reviews. The default operating metric, average star rating,
 barely separates survivors from closures, so we build the signal from engagement
 dynamics and review text instead.
 
-- App: runs locally with `streamlit run app/streamlit_app.py` (see Run the app below)
+- **Live app:** [location-risk-radar-lrr-cis509.streamlit.app](https://location-risk-radar-lrr-cis509.streamlit.app) (no API key needed)
+- Run locally: `streamlit run app/streamlit_app.py` (see Run the app below)
 - Final notebook: [`notebooks/Location_Risk_Radar_Final.ipynb`](notebooks/Location_Risk_Radar_Final.ipynb)
 
 ## 30-second summary
@@ -54,6 +55,14 @@ flowchart LR
 ```
 
 ## Headline results
+
+| Finding | Result |
+|---|---|
+| Star rating gap, open vs closed restaurants | about **0.03 stars**: the default KPI is nearly blind to closure |
+| Survival model C index, adding BERTopic complaint themes | **0.640 → 0.677** |
+| Review sentiment classifier (TF-IDF + LinearSVC) | **0.956 macro F1** |
+
+The full metrics table with 95% confidence intervals is generated below from pipeline artifacts.
 
 <!-- HEADLINE-METRICS:START -->
 _Headline metrics are generated from `artifacts/model_metrics.parquet`._
