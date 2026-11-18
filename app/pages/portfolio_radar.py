@@ -226,19 +226,21 @@ def _risk_map(view: pd.DataFrame) -> None:
                 ),
             }
         )
-    lab = pd.DataFrame(rows)
-    fig.add_trace(
-        go.Scattergeo(
-            lat=lab["lat"].tolist(),
-            lon=lab["lon"].tolist(),
-            mode="text",
-            text=lab["txt"].tolist(),
-            textposition="top center",
-            textfont={"size": 11, "color": "#1A1A1A"},
-            hoverinfo="skip",
-            showlegend=False,
+    # A narrow filter can leave no city big enough to label; skip labels then.
+    if rows:
+        lab = pd.DataFrame(rows)
+        fig.add_trace(
+            go.Scattergeo(
+                lat=lab["lat"].tolist(),
+                lon=lab["lon"].tolist(),
+                mode="text",
+                text=lab["txt"].tolist(),
+                textposition="top center",
+                textfont={"size": 11, "color": "#1A1A1A"},
+                hoverinfo="skip",
+                showlegend=False,
+            )
         )
-    )
     pad_lat = max(1.0, (m["lat"].max() - m["lat"].min()) * 0.08)
     pad_lon = max(1.0, (m["lon"].max() - m["lon"].min()) * 0.08)
     fig.update_geos(
