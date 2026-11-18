@@ -34,9 +34,7 @@ def render() -> None:
     cache = data.load("rag_cache")
     locs = data.locations(scored_only=True)
     labels = data.label_map(data.locations())
-    cached_ids = (
-        cache["business_id"].dropna().unique().tolist() if cache is not None else []
-    )
+    cached_ids = cache["business_id"].dropna().unique().tolist() if cache is not None else []
 
     # Precomputed answers exist for the highest-risk locations. List those first so
     # Cached mode always has something to show, then the filtered scope.
@@ -48,7 +46,8 @@ def render() -> None:
         st.info(data.empty_filter_message(data.locations()))
         return
     st.caption(
-        f"\u2605 = {len(cached_ids)} high-risk locations with {len(cache) if cache is not None else 0} "
+        f"\u2605 = {len(cached_ids)} high-risk locations with "
+        f"{len(cache) if cache is not None else 0} "
         "precomputed, judge-checked answers (Cached mode)."
     )
     bid = st.selectbox(

@@ -100,9 +100,10 @@ def test_verify_models_substitutes_missing(tmp_path):
         write=True, list_fn=fake_list, out_path=tmp_path / "gateway_models.json"
     )
     assert "substitutions" in res
-    # gpt-4o-mini is absent -> substituted to an available openai id.
+    # The configured NVIDIA ids are absent from the fake list -> substituted to an
+    # available NVIDIA id.
     subs = res["substitutions"]
-    assert any(k.startswith("openai:") for k in subs)
+    assert any(k.startswith("nvidia:") for k in subs)
     assert (tmp_path / "gateway_models.json").exists()
 
 

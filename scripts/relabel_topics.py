@@ -79,7 +79,10 @@ def main() -> None:
             verdict = llm.chat(
                 [
                     {"role": "system", "content": BRAND_SYSTEM},
-                    {"role": "user", "content": f"Label: {label}\nTop words: {', '.join(words[:10])}"},
+                    {
+                        "role": "user",
+                        "content": f"Label: {label}\nTop words: {', '.join(words[:10])}",
+                    },
                 ],
                 temperature=0.0,
                 max_tokens=4,
