@@ -26,7 +26,9 @@ def render() -> None:
     st.sidebar.multiselect("Cluster", _options(cohort, "cluster"), key="f_cluster")
     st.sidebar.multiselect("Chain", _options(cohort, "chain"), key="f_chain")
     st.sidebar.multiselect("State", _options(cohort, "state"), key="f_state")
-    st.sidebar.multiselect("Risk tier", ["High", "Elevated", "Watch", "Low", "Not scored"], key="f_tier")
+    st.sidebar.multiselect(
+        "Risk tier", ["High", "Elevated", "Watch", "Low", "Not scored"], key="f_tier"
+    )
 
     st.sidebar.divider()
     _gateway_panel()

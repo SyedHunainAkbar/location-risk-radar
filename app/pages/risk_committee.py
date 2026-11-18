@@ -90,8 +90,7 @@ def _fast_gateway():
 
     routes = dict(routing.load_routes())
     fast, strong = "meta/llama-3.2-11b-vision-instruct", "meta/llama-3.2-90b-vision-instruct"
-    for role, temp in (("quant_analyst", 0.0), ("voice_of_customer", 0.2),
-                       ("risk_auditor", 0.0)):
+    for role, temp in (("quant_analyst", 0.0), ("voice_of_customer", 0.2), ("risk_auditor", 0.0)):
         routes[role] = [
             routing.RouteEntry("nvidia", fast, temp, 700, 40),
             routing.RouteEntry("nvidia", strong, temp, 700, 60),
@@ -182,9 +181,7 @@ def _run_live(bid: str, risk, cards) -> None:
         str(data.config.DATA_DIR / data.config.features_file(data.config.LANDMARK_PRIMARY))
     )
     if features is None:  # hosted app: the three fact-sheet features ship as an artifact
-        features = data._cached_read(
-            str(data.config.ARTIFACTS_DIR / "committee_features.parquet")
-        )
+        features = data._cached_read(str(data.config.ARTIFACTS_DIR / "committee_features.parquet"))
     shap = data._cached_read(str(data.config.ARTIFACTS_DIR / "shap_drivers.parquet"))
     fs = agents.build_factsheet(bid, risk, shap_drivers=shap, features=features)
     snippets = _retrieve(bid).head(LIVE_SNIPPETS).copy()
@@ -197,8 +194,7 @@ def _run_live(bid: str, risk, cards) -> None:
         for card, name, meta in zip(cards, AGENTS, res["cards"]):
             widgets.agent_card(card, name, "done", *meta[:4], detail=meta[4])
         st.success(f"Committee result from this session's live run ({res['secs']:.0f}s).")
-        _render_live_brief(fs, res["rendered"], res["voc"], res["claims"], res["audit"],
-                           snippets)
+        _render_live_brief(fs, res["rendered"], res["voc"], res["claims"], res["audit"], snippets)
         return
 
     _fast_gateway()
@@ -221,16 +217,33 @@ def _run_live(bid: str, risk, cards) -> None:
         st.write("Quant Analyst and Voice of Customer are running in parallel ...")
         try:
             pool = cf.ThreadPoolExecutor(max_workers=2)
-            fq = pool.submit(_timed, quant_mod.run_quant, fs,
-                             data.config.QUANT_PLACEHOLDER_RETRIES, None)
+            fq = pool.submit(
+                _timed, quant_mod.run_quant, fs, data.config.QUANT_PLACEHOLDER_RETRIES, None
+            )
             fv = pool.submit(_timed, voc_mod.run_voc, snippets, None)
             quant_parsed, tq, (pq, mq, cq) = fq.result(timeout=AGENT_BUDGET_S)
-            widgets.agent_card(q_card, AGENTS[0], "done", pq, mq, tq, cq,
-                               detail=f"{len(quant_parsed.drivers)} driver explanations")
+            widgets.agent_card(
+                q_card,
+                AGENTS[0],
+                "done",
+                pq,
+                mq,
+                tq,
+                cq,
+                detail=f"{len(quant_parsed.drivers)} driver explanations",
+            )
             voc_result, tv, (pv, mv, cv) = fv.result(timeout=AGENT_BUDGET_S)
-            widgets.agent_card(v_card, AGENTS[1], "done", pv, mv, tv, cv,
-                               detail=f"{len(voc_result['items'])} grounded quotes "
-                                      f"({voc_result['dropped']} dropped)")
+            widgets.agent_card(
+                v_card,
+                AGENTS[1],
+                "done",
+                pv,
+                mv,
+                tv,
+                cv,
+                detail=f"{len(voc_result['items'])} grounded quotes "
+                f"({voc_result['dropped']} dropped)",
+            )
             pool.shutdown(wait=False)
 
             st.write("Risk Auditor is checking every claim ...")
@@ -239,18 +252,27 @@ def _run_live(bid: str, risk, cards) -> None:
             claims = auditor_mod.build_claims(rendered, voc_result)
             facts = {k: v for k, v in fs.items() if isinstance(v, str)}
             pool2 = cf.ThreadPoolExecutor(max_workers=1)
-            fa = pool2.submit(_timed, auditor_mod.run_auditor, claims, voc_result,
-                              {"review_volume": "unknown", "factsheet": facts})
+            fa = pool2.submit(
+                _timed,
+                auditor_mod.run_auditor,
+                claims,
+                voc_result,
+                {"review_volume": "unknown", "factsheet": facts},
+            )
             audit, ta, (pa, ma, ca) = fa.result(timeout=AGENT_BUDGET_S)
             pool2.shutdown(wait=False)
             n_sup = len(auditor_mod.supported_claim_ids(audit))
-            a_detail = (f"{n_sup}/{len(audit.claims)} claims supported, "
-                        f"grade {audit.confidence_grade}")
+            a_detail = (
+                f"{n_sup}/{len(audit.claims)} claims supported, grade {audit.confidence_grade}"
+            )
             widgets.agent_card(a_card, AGENTS[2], "done", pa, ma, ta, ca, detail=a_detail)
             secs = max(tq, tv) + ta
             status.update(label=f"Committee complete in {secs:.0f}s.", state="complete")
             memo[bid] = {
-                "rendered": rendered, "voc": voc_result, "claims": claims, "audit": audit,
+                "rendered": rendered,
+                "voc": voc_result,
+                "claims": claims,
+                "audit": audit,
                 "secs": secs,
                 "cards": [
                     (pq, mq, tq, cq, f"{len(quant_parsed.drivers)} driver explanations"),
@@ -262,8 +284,9 @@ def _run_live(bid: str, risk, cards) -> None:
             for card, name in zip(cards, AGENTS):
                 widgets.agent_card(card, name, "failed")
             failed = "timed out" if isinstance(exc, cf.TimeoutError) else type(exc).__name__
-            status.update(label=f"Live committee {failed}; showing the precomputed brief.",
-                          state="error")
+            status.update(
+                label=f"Live committee {failed}; showing the precomputed brief.", state="error"
+            )
     # Rendered outside the status box: Streamlit forbids expanders inside expanders.
     if failed:
         _render_cached(bid, data.load("briefs"))

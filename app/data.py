@@ -212,8 +212,10 @@ def _enriched(risk_path: str, loc_path: str) -> pd.DataFrame | None:
         base = base.merge(risk[keep], on="business_id", how="left")
     else:
         base["risk_tier"] = None
-    base["eligibility"] = base["risk_tier"].notna().map(
-        {True: "Scored (active at landmark)", False: "Inactive before landmark"}
+    base["eligibility"] = (
+        base["risk_tier"]
+        .notna()
+        .map({True: "Scored (active at landmark)", False: "Inactive before landmark"})
     )
     base["risk_tier"] = base["risk_tier"].fillna("Not scored")
     base["observed_status"] = pd.to_numeric(base.get("is_open"), errors="coerce").map(
@@ -272,8 +274,11 @@ def empty_filter_message(df: pd.DataFrame | None) -> str:
     if base.empty:
         return "No locations match the current cluster, chain and state filters."
     counts = base["risk_tier"].value_counts()
-    mix = ", ".join(f"{t}: {int(counts[t])}" for t in
-                    ["High", "Elevated", "Watch", "Low", "Not scored"] if t in counts)
+    mix = ", ".join(
+        f"{t}: {int(counts[t])}"
+        for t in ["High", "Elevated", "Watch", "Low", "Not scored"]
+        if t in counts
+    )
     return (
         f"No locations match the selected risk tier. The {len(base):,} locations in this "
         f"cluster/chain/state selection are: {mix}. Tiers are cut on the pooled cohort, "

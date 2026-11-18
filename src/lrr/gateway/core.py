@@ -345,13 +345,13 @@ class Gateway:
             )
             if entry.provider != "mock":
                 cache_mod.put(
-                  key,
-                  {
-                      "text": text,
-                      "provider": entry.provider,
-                      "model": entry.model,
-                      "fallback_used": fallback_used,
-                  },
+                    key,
+                    {
+                        "text": text,
+                        "provider": entry.provider,
+                        "model": entry.model,
+                        "fallback_used": fallback_used,
+                    },
                 )
             return GatewayResult(
                 text=text,

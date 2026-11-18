@@ -64,7 +64,10 @@ def agent_card(
     dot = {"waiting": "⚪", "running": "🟡", "done": "🟢", "failed": "🔴", "skipped": "⚫"}.get(
         status, "⚪"
     )
-    lines = [f"<b>{dot} {html.escape(name)}</b>", f"<span class='lrr-muted'>{status.capitalize()}</span>"]
+    lines = [
+        f"<b>{dot} {html.escape(name)}</b>",
+        f"<span class='lrr-muted'>{status.capitalize()}</span>",
+    ]
     if provider:
         tag = "cached" if cache else "live"
         lines.append(

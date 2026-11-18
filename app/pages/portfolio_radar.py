@@ -146,8 +146,8 @@ def _risk_map(view: pd.DataFrame) -> None:
     merged = merged.sort_values("risk_tier", key=lambda s: s.map(order))
     st.caption(
         "Each dot is one location, colored by risk tier: "
-        "\U0001F534 High, \U0001F7E0 Elevated, \U0001F7E1 Watch, \U0001F535 Low, "
-        "\u26AA not scored (inactive before 2018). Larger dots are higher risk. "
+        "\U0001f534 High, \U0001f7e0 Elevated, \U0001f7e1 Watch, \U0001f535 Low, "
+        "\u26aa not scored (inactive before 2018). Larger dots are higher risk. "
         "Labels show each metro area with its location and High/Elevated counts. "
         "Hover a dot for chain, city, tier and score; pick a State in the sidebar to zoom in."
     )
@@ -161,9 +161,12 @@ def _risk_map(view: pd.DataFrame) -> None:
             "hover": [
                 f"<b>{c}</b> ({cl})<br>{ci}, {stt}<br>Tier: {t}<br>Score: {sc}"
                 for c, cl, ci, stt, t, sc in zip(
-                    merged["chain"].astype(object), merged["cluster"].astype(object),
-                    merged["city"].astype(object), merged["state"].astype(object),
-                    merged["risk_tier"].astype(object), merged["score_txt"],
+                    merged["chain"].astype(object),
+                    merged["cluster"].astype(object),
+                    merged["city"].astype(object),
+                    merged["state"].astype(object),
+                    merged["risk_tier"].astype(object),
+                    merged["score_txt"],
                 )
             ],
         }
@@ -184,9 +187,12 @@ def _risk_map(view: pd.DataFrame) -> None:
                 lon=d["lon"].tolist(),
                 mode="markers",
                 name=f"{tier} ({len(d)})",
-                marker={"size": size[tier] * 1.3, "color": colors[tier],
-                        "opacity": 0.7 if tier in ("Low", "Not scored") else 0.95,
-                        "line": {"width": 0.5, "color": "white"}},
+                marker={
+                    "size": size[tier] * 1.3,
+                    "color": colors[tier],
+                    "opacity": 0.7 if tier in ("Low", "Not scored") else 0.95,
+                    "line": {"width": 0.5, "color": "white"},
+                },
                 text=d["hover"].tolist(),
                 hovertemplate="%{text}<extra></extra>",
             )
@@ -198,26 +204,39 @@ def _risk_map(view: pd.DataFrame) -> None:
     # One state in view: label its largest cities instead of the metro.
     single = lab["state"].nunique() == 1
     groups = (
-        [(k, g) for k, g in lab.groupby("city")
-         if len(g) >= max(3, lab["city"].value_counts().iloc[min(7, lab["city"].nunique() - 1)])]
-        if single else list(lab.groupby("state"))
+        [
+            (k, g)
+            for k, g in lab.groupby("city")
+            if len(g) >= max(3, lab["city"].value_counts().iloc[min(7, lab["city"].nunique() - 1)])
+        ]
+        if single
+        else list(lab.groupby("state"))
     )
     for key, g in groups:
         stt = g["state"].iloc[0]
         city = key if single else g["city"].value_counts().index[0]
         nh = int((g["risk_tier"] == "High").sum())
         ne = int((g["risk_tier"] == "Elevated").sum())
-        rows.append({
-            "lat": float(g["lat"].median()), "lon": float(g["lon"].median()),
-            "txt": f"<b>{city}, {stt}</b><br>{len(g)} locations \u00b7 {nh} High \u00b7 {ne} Elev.",
-        })
+        rows.append(
+            {
+                "lat": float(g["lat"].median()),
+                "lon": float(g["lon"].median()),
+                "txt": (
+                    f"<b>{city}, {stt}</b><br>{len(g)} locations \u00b7 {nh} High \u00b7 {ne} Elev."
+                ),
+            }
+        )
     lab = pd.DataFrame(rows)
     fig.add_trace(
         go.Scattergeo(
-            lat=lab["lat"].tolist(), lon=lab["lon"].tolist(), mode="text",
-            text=lab["txt"].tolist(), textposition="top center",
+            lat=lab["lat"].tolist(),
+            lon=lab["lon"].tolist(),
+            mode="text",
+            text=lab["txt"].tolist(),
+            textposition="top center",
             textfont={"size": 11, "color": "#1A1A1A"},
-            hoverinfo="skip", showlegend=False,
+            hoverinfo="skip",
+            showlegend=False,
         )
     )
     pad_lat = max(1.0, (m["lat"].max() - m["lat"].min()) * 0.08)
@@ -226,23 +245,37 @@ def _risk_map(view: pd.DataFrame) -> None:
         scope="north america",
         projection_type="mercator",
         resolution=50,
-        showland=True, landcolor="#F4F5F7",
-        showlakes=True, lakecolor="#DDE7F0",
-        showocean=True, oceancolor="#EAF1F7",
-        showcountries=True, countrycolor="#9AA1AB",
-        showsubunits=True, subunitcolor="#C3C8CF",
+        showland=True,
+        landcolor="#F4F5F7",
+        showlakes=True,
+        lakecolor="#DDE7F0",
+        showocean=True,
+        oceancolor="#EAF1F7",
+        showcountries=True,
+        countrycolor="#9AA1AB",
+        showsubunits=True,
+        subunitcolor="#C3C8CF",
         lataxis_range=[m["lat"].min() - pad_lat, m["lat"].max() + pad_lat],
         lonaxis_range=[m["lon"].min() - pad_lon, m["lon"].max() + pad_lon],
     )
     fig.update_layout(
         height=520,
         margin={"l": 0, "r": 0, "t": 0, "b": 0},
-        legend={"title": "Risk tier (click to hide/show)", "yanchor": "bottom", "y": 0.02,
-                "xanchor": "right", "x": 0.99, "bgcolor": "rgba(255,255,255,0.9)"},
+        legend={
+            "title": "Risk tier (click to hide/show)",
+            "yanchor": "bottom",
+            "y": 0.02,
+            "xanchor": "right",
+            "x": 0.99,
+            "bgcolor": "rgba(255,255,255,0.9)",
+        },
     )
     st.plotly_chart(fig, use_container_width=True)
-    tiers = [t for t in ["High", "Elevated", "Watch", "Low", "Not scored"]
-             if t in set(merged["risk_tier"])]
+    tiers = [
+        t
+        for t in ["High", "Elevated", "Watch", "Low", "Not scored"]
+        if t in set(merged["risk_tier"])
+    ]
     by_state = merged.groupby(["state", "risk_tier"]).size().unstack(fill_value=0)[tiers]
     if "High" in by_state:
         by_state = by_state.sort_values("High", ascending=False)
@@ -279,9 +312,7 @@ def _cohort_coverage(risk: pd.DataFrame) -> None:
         )
         inactive = loc[loc["eligibility"] != "Scored (active at landmark)"].copy()
         inactive["observed status"] = inactive["is_open"].map({1: "Open", 0: "Closed"})
-        summary = (
-            loc.groupby(["cluster", "eligibility"]).size().unstack(fill_value=0).reset_index()
-        )
+        summary = loc.groupby(["cluster", "eligibility"]).size().unstack(fill_value=0).reset_index()
         st.dataframe(summary, hide_index=True, use_container_width=True)
         st.dataframe(
             inactive[["business_id", "chain", "cluster", "city", "state", "observed status"]],
