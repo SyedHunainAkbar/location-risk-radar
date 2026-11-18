@@ -208,7 +208,9 @@ def _enriched(risk_path: str, loc_path: str) -> pd.DataFrame | None:
         return risk
     base = loc.copy()
     if risk is not None:
-        keep = [c for c in risk.columns if c not in ("chain", "cluster")]
+        # Join only risk columns the location table lacks, so shared keys such as
+        # chain, cluster and state are never suffixed (state_x / state_y).
+        keep = ["business_id"] + [c for c in risk.columns if c not in base.columns]
         base = base.merge(risk[keep], on="business_id", how="left")
     else:
         base["risk_tier"] = None
